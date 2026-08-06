@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     # local apps
     "accounts",
+    "rest_framework_simplejwt.token_blacklist",
 ]
 
 MIDDLEWARE = [
@@ -136,12 +137,32 @@ REST_FRAMEWORK = {
 
 }
 
+from django.contrib.messages import api
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
+
+class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
+    target_class = "rest_framework_simplejwt.authentication.JWTAuthentication"
+    name = "BearerAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+
 SPECTACULAR_SETTINGS = {
 
     "TITLE": "TodayFix API",
+
+    "SCHEMA_PATH_PREFIX": r"/api/auth",
 
     "DESCRIPTION": "TodayFix Backend APIs",
 
     "VERSION": "1.0.0",
 
+    "SERVE_INCLUDE_SCHEMA": False,
+
 }
+

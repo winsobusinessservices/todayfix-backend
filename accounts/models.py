@@ -5,7 +5,7 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.utils.translation import gettext_lazy as _
 
 from .managers import CustomUserManager
-
+from django.core.validators import RegexValidator
 from .choices import UserRole
 
 
@@ -31,11 +31,20 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name="Email Address"
     )
 
+    phone_validator = RegexValidator(
+        regex=r'^\+[1-9]\d{7,14}$',
+        message=(
+            "Phone number must be in E.164 format. "
+            "Example: +919876543210"
+            )
+        )
+
     phone = models.CharField(
-        max_length=15,
+        max_length=16,
         unique=True,
         db_index=True,
-        verbose_name="Phone Number"
+        verbose_name="Phone Number",
+        validators=[phone_validator]
     )
 
     role = models.CharField(
@@ -86,4 +95,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.full_name} ({self.email})"
+
+    
     
