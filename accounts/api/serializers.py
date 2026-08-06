@@ -197,4 +197,6 @@ class LogoutSerializer(serializers.Serializer):
                     "detail": "Invalid refresh token."
                 }
             )
-    
+
+        
+
