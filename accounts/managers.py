@@ -12,7 +12,8 @@ class CustomUserManager(BaseUserManager):
     def create_user(
         self,
         email,
-        full_name,
+        first_name,
+        last_name,
         phone,
         password=None,
         role=UserRole.USER,
@@ -21,28 +22,22 @@ class CustomUserManager(BaseUserManager):
         """
         Create and return a regular user.
         """
-
         if not email:
-            raise ValueError(_("Email address is required."))
+            raise ValueError("Email is required")
 
-        if not full_name:
-            raise ValueError(_("Full name is required."))
-
-        if not phone:
-            raise ValueError(_("Phone number is required."))
-
-        email = self.normalize_email(email)
+    # Convert email to lowercase before saving
+        email = self.normalize_email(email).lower()
 
         user = self.model(
             email=email,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             phone=phone,
             role=role,
             **extra_fields,
         )
 
         user.set_password(password)
-
         user.save(using=self._db)
 
         return user
@@ -50,7 +45,8 @@ class CustomUserManager(BaseUserManager):
     def create_business(
         self,
         email,
-        full_name,
+        first_name,
+        last_name,
         phone,
         password=None,
         **extra_fields,
@@ -63,7 +59,8 @@ class CustomUserManager(BaseUserManager):
 
         return self.create_user(
             email=email,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             phone=phone,
             password=password,
             **extra_fields,
@@ -72,7 +69,8 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(
         self,
         email,
-        full_name,
+        first_name,
+        last_name,
         phone,
         password=None,
         **extra_fields,
@@ -95,8 +93,10 @@ class CustomUserManager(BaseUserManager):
 
         return self.create_user(
             email=email,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             phone=phone,
             password=password,
             **extra_fields,
         )
+    

@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
-
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -131,7 +131,7 @@ REST_FRAMEWORK = {
 
     "DEFAULT_AUTHENTICATION_CLASSES": (
 
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "accounts.authentication.CustomJWTAuthentication",
 
     ),
 
@@ -142,9 +142,15 @@ from drf_spectacular.extensions import OpenApiAuthenticationExtension
 
 
 class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
-    target_class = "rest_framework_simplejwt.authentication.JWTAuthentication"
+    target_class = "accounts.authentication.CustomJWTAuthentication"
     name = "BearerAuth"
 
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
     def get_security_definition(self, auto_schema):
         return {
             "type": "http",
@@ -154,7 +160,7 @@ class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
 
 SPECTACULAR_SETTINGS = {
 
-    "TITLE": "TodayFix API",
+    "TITLE": "TodayFix Service API",
 
     "SCHEMA_PATH_PREFIX": r"/api/auth",
 
@@ -164,5 +170,24 @@ SPECTACULAR_SETTINGS = {
 
     "SERVE_INCLUDE_SCHEMA": False,
 
+    "SECURITY": [
+        {
+            "BearerAuth": []
+        }
+    ],
+
 }
 
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+SIMPLE_JWT = {
+
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+
+    "ROTATE_REFRESH_TOKENS": True,
+
+    "BLACKLIST_AFTER_ROTATION": True,
+
+}

@@ -8,7 +8,8 @@ from .models import CustomUser
 class CustomUserAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "full_name",
+        "first_name",
+        "last_name",
         "email",
         "phone",
         "role",
@@ -17,7 +18,8 @@ class CustomUserAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "full_name",
+        "first_name",
+        "last_name",
         "email",
         "phone",
     )
@@ -27,3 +29,4 @@ class CustomUserAdmin(admin.ModelAdmin):
         "is_active",
         "is_staff",
     )
+    

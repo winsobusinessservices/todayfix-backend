@@ -1,6 +1,7 @@
 from ast import pattern
+import email
 from xml.parsers.expat import errors
-
+from django.utils import timezone   
 from attr import attrs
 from django.contrib.auth import authenticate
 from rest_framework import serializers
@@ -22,11 +23,21 @@ class RegisterUserSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(
         write_only=True
     )
+    def validate_email(self, value):
+        email = value.lower()
+
+        if CustomUser.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                "Email already exists."
+            )
+
+        return email
 
     class Meta:
         model = CustomUser
         fields = (
-            "full_name",
+            "first_name",
+            "last_name",
             "email",
             "phone",
             "password",
@@ -80,15 +91,15 @@ class RegisterUserSerializer(serializers.ModelSerializer):
         return attrs
 
 
-def validate_phone(self, value):
-    pattern = r'^\+[1-9]\d{7,14}$'
+    def validate_phone(self, value):
+        pattern = r'^[6-9]\d{9}$'
 
-    if not re.match(pattern, value):
-        raise serializers.ValidationError(
-            "Phone number must be in E.164 format. Example: +919876543210"
-        )
+        if not re.match(pattern, value):
+            raise serializers.ValidationError(
+                "Phone number must be exactly 10 digits and start with 6, 7, 8, or 9."
+            )
 
-    return value
+        return value
 
     def create(self, validated_data):
 
@@ -97,7 +108,6 @@ def validate_phone(self, value):
         from accounts.services import AuthService
 
         return AuthService.register_user(validated_data)
-
 
 class RegisterBusinessSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -112,7 +122,8 @@ class RegisterBusinessSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = (
-            "full_name",
+            "first_name",
+            "last_name",
             "email",
             "phone",
             "password",
@@ -139,6 +150,16 @@ class RegisterBusinessSerializer(serializers.ModelSerializer):
             )
 
         return value
+    def validate_email(self, value):
+
+        value = value.lower()
+
+        if CustomUser.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "Email already exists."
+            )
+
+        return value
 
     def create(self, validated_data):
         validated_data.pop("confirm_password")
@@ -146,8 +167,7 @@ class RegisterBusinessSerializer(serializers.ModelSerializer):
         return CustomUser.objects.create_business(
             **validated_data,
         )
-
-
+    
 class LoginSerializer(serializers.Serializer):
 
     email = serializers.EmailField()
@@ -188,15 +208,81 @@ class LogoutSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         try:
-            token = RefreshToken(self.refresh)
-            token.blacklist()
+            refresh_token = RefreshToken(self.refresh)
+            user = self.context["request"].user
+
+            refresh_token.blacklist()
+
+            user.last_logout = timezone.now()
+            user.save()
 
         except TokenError:
             raise serializers.ValidationError(
                 {
                     "detail": "Invalid refresh token."
                 }
+        )
+
+class UpdateProfileSerializer(serializers.ModelSerializer):
+
+    firstName = serializers.CharField(
+        source="first_name",
+        required=False,
+        allow_blank=True,
+    )
+
+    lastName = serializers.CharField(
+        source="last_name",
+        required=False,
+        allow_blank=True,
+    )
+
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )
+
+    profileImage = serializers.CharField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        allow_blank=True,
+    )
+
+    class Meta:
+        model = CustomUser
+        fields = (
+            "firstName",
+            "lastName",
+            "phone",
+            "profileImage",
+        )
+
+    def validate_phone(self, value):
+        if value == "":
+            return self.instance.phone
+
+        pattern = r'^[6-9]\d{9}$'
+
+        if value and not re.match(pattern, value):
+            raise serializers.ValidationError(
+                "Phone number must be exactly 10 digits and start with 6, 7, 8, or 9."
             )
+
+        return value
+
+    def update(self, instance, validated_data):
+
+        validated_data.pop("profileImage", None)
+
+        for attr, value in validated_data.items():
+            if value != "":
+                setattr(instance, attr, value)
+
+        instance.save()
+        return instance
+    
+
 
         
 
