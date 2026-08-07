@@ -1,3 +1,4 @@
+from httpcore import request
 from rest_framework import status
 from rest_framework.generics import CreateAPIView
 from rest_framework.response import Response
@@ -12,6 +13,7 @@ from .serializers import (
     RegisterBusinessSerializer,
     LoginSerializer,
     LogoutSerializer,
+    UpdateProfileSerializer,
 )
 
 from rest_framework.permissions import IsAuthenticated
@@ -37,7 +39,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
                         "data": {
                             "id": 1,
                             "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "full_name": "John Doe",
+                            "first_name": "John",
+                            "last_name": "  Doe",
                             "email": "john@example.com",
                             "phone": "+919876543210",
                             "role": "USER",
@@ -75,7 +78,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
         OpenApiExample(
             "Register User",
             value={
-                "full_name": "John Doe",
+                "first_name": "John",
+                "last_name": "Doe",
                 "email": "john@example.com",
                 "phone": "+919876543210",
                 "password": "Password@123",
@@ -100,18 +104,24 @@ class RegisterUserAPIView(CreateAPIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
 
         return Response(
             {
                 "success": True,
                 "message": "User registered successfully.",
                 "data": {
+                    "access": str(access),
+                    "refresh": str(refresh),
                     "id": user.id,
                     "uuid": str(user.uuid),
-                    "full_name": user.full_name,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
                     "email": user.email,
                     "phone": user.phone,
                     "role": user.role,
+ 
                 },
             },
             status=status.HTTP_201_CREATED,
@@ -145,14 +155,20 @@ class RegisterBusinessAPIView(CreateAPIView):
 
         user = serializer.save()
 
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
+
         return Response(
             {
                 "success": True,
                 "message": "Business account created successfully.",
                 "data": {
+                    "refresh": str(refresh),
+                    "access": str(access),
                     "id": user.id,
                     "uuid": str(user.uuid),
-                    "full_name": user.full_name,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
                     "email": user.email,
                     "phone": user.phone,
                     "role": user.role,
@@ -163,7 +179,7 @@ class RegisterBusinessAPIView(CreateAPIView):
 
 @extend_schema(
     auth=[],
-    tags=["Authentication"],
+    tags=["Login"],
     summary="Login",
     description="Login using email and password.",
     request=LoginSerializer,
@@ -179,7 +195,8 @@ class RegisterBusinessAPIView(CreateAPIView):
                         "data": {
                             "id": 1,
                             "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "full_name": "Demo1 User",
+                            "first_name": "Demo1",
+                            "last_name": "User",
                             "email": "demo1@example.com",
                             "phone": "+919876543210",
                             "role": "USER",
@@ -253,14 +270,16 @@ class LoginAPIView(CreateAPIView):
                 "success": True,
                 "message": "Login successful.",
                 "data": {
+                    "access": str(access),
+                    "refresh": str(refresh),
                     "id": user.id,
                     "uuid": str(user.uuid),
-                    "full_name": user.full_name,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
                     "email": user.email,
                     "phone": user.phone,
                     "role": user.role,
-                    "access": str(access),
-                    "refresh": str(refresh),
+                    
                 },
             },
             status=status.HTTP_200_OK,
@@ -268,7 +287,7 @@ class LoginAPIView(CreateAPIView):
 
 @extend_schema(
     auth=[{"BearerAuth": []}],
-    tags=["Authentication"],
+    tags=["Login"],
     summary="Logout",
     description="Logout the user by blacklisting the refresh token.",
     request=LogoutSerializer,
@@ -331,7 +350,7 @@ class LogoutAPIView(CreateAPIView):
 
 @extend_schema(
     auth=[{"BearerAuth": []}],
-    tags=["Authentication"],
+    tags=["Accounts"],
     summary="Profile",
     description="Retrieve the profile details of the authenticated user.",
     responses={
@@ -346,7 +365,8 @@ class LogoutAPIView(CreateAPIView):
                         "data": {
                             "id": 1,
                             "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "full_name": "Demo1 User",
+                            "first_name": "Demo1",
+                            "last_name": "User",
                             "email": "demo1@example.com",
                             "phone": "+919876543210",
                             "role": "USER",
@@ -374,15 +394,117 @@ class ProfileAPIView(APIView):
                 "success": True,
                 "message": "Profile fetched successfully.",
                 "data": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "full_name": user.full_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "role": user.role,
+                    "id": request.user.id,
+                    "firstName": request.user.first_name,
+                    "lastName": request.user.last_name,
+                    "role": request.user.role,
+                    "hasBusiness": request.user.role == "BUSINESS",
+                    "businessVerified": request.user.is_verified,
+                    "email": request.user.email,
+                    "profileImage": (
+                        request.user.profile_picture.url
+                        if request.user.profile_picture
+                        else ""
+                    ),
+                "phone": request.user.phone,
+                "joinedate": request.user.created_at.strftime("%b %Y"),
+                "addresses": [],
                 },
             },
             status=status.HTTP_200_OK,
         )
+    
+@extend_schema(
+    tags=["Accounts"],
+    summary="Update Profile",
+    description="Update the authenticated user's profile.",
+    request=UpdateProfileSerializer,
+    responses={
+        200: OpenApiResponse(
+            description="Profile updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Profile updated successfully.",
+                        "data": {
+                            "firstName": "",
+                            "lastName": "",
+                            "profileImage": "",
+                            "phone": "",
+                            "addresses": [],
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+        400: OpenApiResponse(
+            description="Validation Error",
+        ),
+        401: OpenApiResponse(
+            description="Authentication credentials were not provided.",
+        ),
+    },
+    examples=[
+        OpenApiExample(
+            "Update Profile",
+            value={
+                "firstName": "",
+                "lastName": "",
+                "profileImage": "",
+                "phone": "",
+                "addresses": [],
+            },
+            request_only=True,
+        ),
+    ],
+)
+class UpdateProfileAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+
+        serializer = UpdateProfileSerializer(
+            request.user,
+            data=request.data,
+            
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save()
+        request.user.refresh_from_db()
+        print(request.user.first_name)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Profile updated successfully.",
+                "data": {
+                    "id": request.user.id,
+                    "firstName": request.user.first_name,
+                    "lastName": request.user.last_name,
+                    "role": request.user.role,
+                    "hasBusiness": request.user.role == "BUSINESS",
+                    "businessVerified": request.user.is_verified,
+                    "email": request.user.email,
+                    "profileImage": (
+                        request.user.profile_picture.url
+                        if request.user.profile_picture
+                        else ""
+                    ),
+                    "phone": request.user.phone,
+                    "joinedate": request.user.created_at.strftime("%b %Y"),
+                    "addresses": [],
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+    
+
+
 
     

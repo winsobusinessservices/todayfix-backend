@@ -21,7 +21,8 @@ class Migration(migrations.Migration):
                 ('last_login', models.DateTimeField(blank=True, null=True, verbose_name='last login')),
                 ('is_superuser', models.BooleanField(default=False, help_text='Designates that this user has all permissions without explicitly assigning them.', verbose_name='superuser status')),
                 ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ('full_name', models.CharField(max_length=150, verbose_name='Full Name')),
+                ('first_name', models.CharField(max_length=150, verbose_name='First Name')),
+                ('last_name', models.CharField(max_length=150, verbose_name='Last Name')),
                 ('email', models.EmailField(db_index=True, max_length=254, unique=True, verbose_name='Email Address')),
                 ('phone', models.CharField(db_index=True, max_length=15, unique=True, verbose_name='Phone Number')),
                 ('role', models.CharField(choices=[('ADMIN', 'Admin'), ('USER', 'User'), ('BUSINESS', 'Business')], default='USER', max_length=20)),
@@ -41,3 +42,4 @@ class Migration(migrations.Migration):
             },
         ),
     ]
+

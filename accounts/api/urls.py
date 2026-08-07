@@ -6,6 +6,7 @@ from .views import (
     LoginAPIView,
     LogoutAPIView,
     ProfileAPIView,
+    UpdateProfileAPIView,
 )
 
 urlpatterns = [
@@ -40,6 +41,17 @@ urlpatterns = [
         name="profile",
     ),
 
+    path(
+        "profile/update/",
+        UpdateProfileAPIView.as_view(),
+        name="update-profile",
+    ),
+
+
+    
 ]
+
+
+
 
 
