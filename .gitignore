@@ -1,22 +1,83 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# ==============================
+# Virtual Environment
+# ==============================
 venv/
+.venv/
+env/
+ENV/
 
-.env
-
+# ==============================
+# Django
+# ==============================
+*.log
 db.sqlite3
+db.sqlite3-journal
 
+# Django collected static files
+staticfiles/
+
+# ==============================
+# Environment / Secrets
+# ==============================
+.env
+.env.*
+!.env.example
+
+# ==============================
+# Media / User Uploaded Files
+# ==============================
 media/
 
-__pycache__/
-
-*.pyc
-
-.idea/
-
+# ==============================
+# IDE / Editors
+# ==============================
 .vscode/
+.idea/
+*.swp
+*.swo
 
+# ==============================
+# OS Files
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================
+# Testing / Coverage
+# ==============================
 .coverage
-
+coverage.xml
+htmlcov/
 .pytest_cache/
+.tox/
 
-*.log
+# ==============================
+# Build / Packaging
+# ==============================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==============================
+# Type Checking
+# ==============================
+.mypy_cache/
+.pyre/
+
+# ==============================
+# Temporary Files
+# ==============================
+*.tmp
+*.temp
+*.bak

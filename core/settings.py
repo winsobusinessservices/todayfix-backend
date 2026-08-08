@@ -37,11 +37,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     # third-party apps
     "rest_framework",
     "drf_spectacular",
+
     # local apps
     "accounts",
+    "business",
     "rest_framework_simplejwt.token_blacklist",
 ]
 
@@ -164,7 +167,7 @@ SPECTACULAR_SETTINGS = {
 
     "SCHEMA_PATH_PREFIX": r"/api/auth",
 
-    "DESCRIPTION": "TodayFix Backend APIs",
+    "DESCRIPTION": "ToDayFix.in Backend Service APIs",
 
     "VERSION": "1.0.0",
 
