@@ -1,4 +1,6 @@
-from httpcore import request
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.generics import CreateAPIView
 from rest_framework.response import Response
@@ -399,7 +401,7 @@ class ProfileAPIView(APIView):
                     "lastName": request.user.last_name,
                     "role": request.user.role,
                     "hasBusiness": request.user.role == "BUSINESS",
-                    "businessVerified": request.user.is_verified,
+                    "businessVerified": request.user.business_verified,
                     "email": request.user.email,
                     "profileImage": (
                         request.user.profile_picture.url
@@ -489,7 +491,7 @@ class UpdateProfileAPIView(APIView):
                     "lastName": request.user.last_name,
                     "role": request.user.role,
                     "hasBusiness": request.user.role == "BUSINESS",
-                    "businessVerified": request.user.is_verified,
+                    "businessVerified": request.user.business_verified,
                     "email": request.user.email,
                     "profileImage": (
                         request.user.profile_picture.url
