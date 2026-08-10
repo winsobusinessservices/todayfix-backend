@@ -5,8 +5,14 @@ from .views import (
     LoginAPIView,
     LogoutAPIView,
     ProfileAPIView,
+    ResetPasswordLinkView,
     UpdateProfileAPIView,
+    ForgotPasswordView,
+    VerifyPasswordResetOTPView,
+    ResetPasswordView,
+    PasswordResetLinkView,
 )
+
 
 urlpatterns = [
 
@@ -40,9 +46,39 @@ urlpatterns = [
         name="update-profile",
     ),
 
+    path(
+        "forgot-password/",
+        ForgotPasswordView.as_view(),
+        name="forgot-password",
+    ),
 
+    path(
+        "forgot-password/verify-otp/",
+        VerifyPasswordResetOTPView.as_view(),
+        name="verify-password-reset-otp",
+    ),
+
+    path(
+        "forgot-password/reset/",
+        ResetPasswordView.as_view(),
+        name="reset-password",
+    ),
+
+    path(
+        "forgot-password/link/",
+        PasswordResetLinkView.as_view(),
+        name="password-reset-link",
+    ),
+
+    path(
+        "forgot-password/reset-link/",
+        ResetPasswordLinkView.as_view(),
+        name="reset-password-link",
+    ),
     
 ]
+
+
 
 
 
