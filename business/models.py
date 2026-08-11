@@ -121,3 +121,4 @@ class ManagedBusiness(TimeStampedModel):
 
     def __str__(self):
         return f"{self.manager_business.name} -> {self.linked_business.name}"
+    

@@ -12,3 +12,4 @@ class UpgradeRequestStatus(models.TextChoices):
     PENDING = "PENDING", _("Pending")
     APPROVED = "APPROVED", _("Approved")
     REJECTED = "REJECTED", _("Rejected")
+    

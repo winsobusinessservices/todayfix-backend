@@ -1,3 +1,5 @@
+import email
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,11 +17,9 @@ from .serializers import (
     RegisterBusinessSerializer,
     LoginSerializer,
     LogoutSerializer,
-    ResetPasswordLinkSerializer,
-    UpdateProfileSerializer,
-    VerifyPasswordResetOTPSerializer,
-    ForgotPasswordSerializer, 
-    ResetPasswordSerializer
+    UpdateProfileSerializer, 
+    UnifiedPasswordResetSerializer,
+    ForgotPasswordSerializer,
 )
 
 from accounts.services import AuthService
@@ -38,11 +38,12 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 
 
-from .serializers import PasswordResetLinkSerializer
-from accounts.models import PasswordResetToken, PasswordResetOTP
+from accounts.models import PasswordResetToken, EmailTemplate
 
-from django.core.mail import send_mail
 from django.conf import settings
+
+from django.template.loader import render_to_string
+from django.core.mail import EmailMultiAlternatives
 
 @extend_schema(
     auth=[],
@@ -526,19 +527,19 @@ class UpdateProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-    
-#====Forgot Password View====#
-@extend_schema(
-    request=ForgotPasswordSerializer,
-)
+
+#------Forgot Password View------#
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
+        auth=[],
+        tags=["Login"],
+        summary="Send password reset link",
         request=ForgotPasswordSerializer,
         responses={
             200: OpenApiResponse(
-                description="Password reset OTP sent successfully."
+                description="Password reset link sent successfully."
             ),
             400: OpenApiResponse(
                 description="Invalid email."
@@ -552,75 +553,46 @@ class ForgotPasswordView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        reset_otp = serializer.save()
-
-        send_mail(
-            subject="TodayFix Password Reset OTP",
-            message=(
-                f"Your TodayFix password reset OTP is: "
-                f"{reset_otp.otp}\n\n"
-                "This OTP is valid for 5 minutes."
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[
-                serializer.user.email,
-            ],
-            fail_silently=False,
-        )
-
-        return Response(
-            {
-                "success": True,
-                "message": "Password reset OTP sent successfully.",
-            },
-            status=status.HTTP_200_OK,
-        )
-
-#---- Password Reset Link View ---#
-class PasswordResetLinkView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        request=PasswordResetLinkSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="Password reset link sent successfully."
-            ),
-            400: OpenApiResponse(
-                description="Invalid email."
-            ),
-        },
-    )
-    def post(self, request):
-        serializer = PasswordResetLinkSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(raise_exception=True)
-
         user = serializer.user
 
         reset_token = AuthService.create_password_reset_token(
             user
         )
 
-        reset_link = (
-            f"http://localhost:3000/reset-password/"
-            f"?token={reset_token.token}"
+        reset_link = AuthService.get_password_reset_link(
+            reset_token
         )
 
-        send_mail(
-            subject="TodayFix Password Reset",
-            message=(
-                "Use the following link to reset your "
-                "TodayFix password:\n\n"
-                f"{reset_link}\n\n"
-                "This link is valid for 15 minutes."
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
+        template = EmailTemplate.objects.get(
+            name="PASSWORD_RESET_LINK"
         )
+
+        html_message = render_to_string(
+            "emails/base_email.html",
+            {
+                "subject": template.subject,
+                "logo_url": "",
+                "first_name": user.first_name,
+                "message": template.message,
+                "otp": "",
+                "reset_link": reset_link,
+                "additional_message": "",
+            },
+        )
+
+        email = EmailMultiAlternatives(
+            subject=template.subject,
+            body=template.message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+
+        email.attach_alternative(
+            html_message,
+            "text/html",
+        )
+
+        email.send(fail_silently=False)
 
         return Response(
             {
@@ -630,135 +602,123 @@ class PasswordResetLinkView(APIView):
             status=status.HTTP_200_OK,
         )
 
-#---- Reset Password Link View ---#
-class ResetPasswordLinkView(APIView):
+#---- Unified Password Reset View ---#
+class UnifiedPasswordResetView(APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
-        request=ResetPasswordLinkSerializer,
+        tags=["Login"],
+        request=UnifiedPasswordResetSerializer,
         responses={
             200: OpenApiResponse(
-                description="Password reset successfully."
+                description="Password reset operation completed successfully."
             ),
             400: OpenApiResponse(
-                description="Invalid or expired reset token."
+                description="Invalid password reset request."
             ),
         },
     )
     def post(self, request):
-        serializer = ResetPasswordLinkSerializer(
-            data=request.data
+        serializer = UnifiedPasswordResetSerializer(
+            data=request.data,
+            context={"request": request},
         )
 
         serializer.is_valid(raise_exception=True)
 
-        reset_token = serializer.validated_data["reset_token"]
-        password = serializer.validated_data["password"]
+        user = serializer.user
 
-        user = reset_token.user
+        # --------------------------------------------------
+        # LOGGED-OUT USER: Send reset link
+        # --------------------------------------------------
+        if (
+            not request.user.is_authenticated
+            and serializer.validated_data.get("email")
+            and not serializer.validated_data.get("token")
+        ):
+            reset_token = AuthService.create_password_reset_token(user)
 
-        # Set the new password securely
-        user.set_password(password)
-        user.save()
+            reset_link = (
+                f"{settings.FRONTEND_DOMAIN}/reset-password/"
+                f"?uuid={user.uuid}"
+                f"&token={reset_token.token}"
+            )
 
-        # Invalidate the reset token
-        reset_token.is_used = True
-        reset_token.save(update_fields=["is_used"])
+            template = EmailTemplate.objects.get(
+                name="PASSWORD_RESET_LINK"
+            )
 
-        return Response(
-            {
-                "success": True,
-                "message": "Password reset successfully.",
-            },
-            status=status.HTTP_200_OK,
-        )
-    
-#---- Verify Password Reset OTP View ---#
-class VerifyPasswordResetOTPView(APIView):
-    permission_classes = [AllowAny]
+            subject = template.subject
 
-    @extend_schema(
-        request=VerifyPasswordResetOTPSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="OTP verified successfully."
-            ),
-            400: OpenApiResponse(
-                description="Invalid or expired OTP."
-            ),
-        },
-    )
-    def post(self, request):
-        serializer = VerifyPasswordResetOTPSerializer(
-            data=request.data
-        )
+            message = template.message.replace(
+                "{{ first_name }}",
+                user.first_name or "User"
+            ).replace(
+                "{{ reset_link }}",
+                reset_link
+            ).replace(
+                "{{ expiry_minutes }}",
+                "15"
+            )
 
-        serializer.is_valid(raise_exception=True)
-
-        reset_otp = serializer.validated_data["reset_otp"]
-        user = serializer.validated_data["user"]
-
-        # Mark OTP as used
-        reset_otp.is_used = True
-        reset_otp.save(update_fields=["is_used"])
-
-        reset_token = AuthService.create_password_reset_token(user)
-        
-
-        return Response(
-            {
-                "success": True,
-                "message": "OTP verified successfully.",
-                "data": {
-                    "reset_token": reset_token.token,
+            html_message = render_to_string(
+                "emails/base_email.html",
+                {
+                    "subject": subject,
+                    "logo_url": "",
+                    "first_name": user.first_name or "User",
+                    "message": message,
+                    "otp": "",
+                    "reset_link": reset_link,
+                    "additional_message": "",
                 },
-            },
-            status=status.HTTP_200_OK,
-        ) 
+            )
 
-#---- Reset Password View ---#
-class ResetPasswordView(APIView):
-    permission_classes = [AllowAny]
+            email = EmailMultiAlternatives(
+                subject=subject,
+                body=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
 
-    @extend_schema(
-        request=ResetPasswordSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="Password reset successfully."
-            ),
-            400: OpenApiResponse(
-                description="Invalid reset token or password."
-            ),
-        },
-    )
-    def post(self, request):
-        serializer = ResetPasswordSerializer(
-            data=request.data
-        )
+            email.attach_alternative(
+                html_message,
+                "text/html",
+            )
 
-        serializer.is_valid(raise_exception=True)
+            email.send(fail_silently=False)
 
-        user = serializer.validated_data["user"]
-        reset_token = serializer.validated_data["reset_token"]
+            return Response(
+                {
+                    "success": True,
+                    "message": "Password reset link sent successfully.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # --------------------------------------------------
+        # PASSWORD RESET
+        # --------------------------------------------------
         new_password = serializer.validated_data["new_password"]
 
-        # Change the password through AuthService
         AuthService.reset_password(
             user=user,
             new_password=new_password,
         )
 
-        # Make the reset token unusable
-        reset_token.is_used = True
-        reset_token.save(update_fields=["is_used"])
+        # If reset was done using email link,
+        # invalidate that token.
+        reset_token = getattr(
+            serializer,
+            "reset_token",
+            None,
+        )
 
-        # Invalidate any remaining OTPs
-        PasswordResetOTP.objects.filter(
-            user=user,
-            is_used=False,
-        ).update(is_used=True)
+        if reset_token:
+            reset_token.is_used = True
+            reset_token.save(update_fields=["is_used"])
 
-        # Invalidate any other unused reset tokens
+        # Invalidate any other unused reset tokens.
         PasswordResetToken.objects.filter(
             user=user,
             is_used=False,
@@ -771,7 +731,5 @@ class ResetPasswordView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
-
+    
     

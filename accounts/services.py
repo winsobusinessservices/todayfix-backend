@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from accounts.models import CustomUser, PasswordResetOTP, PasswordResetToken
+from accounts.models import CustomUser, PasswordResetToken
 from accounts.choices import UserRole
 
 import secrets
@@ -15,7 +15,7 @@ from accounts.models import (
     PasswordResetToken,
 )
 
-
+from django.conf import settings
 class AuthService:
 
     @staticmethod
@@ -91,3 +91,33 @@ class AuthService:
         )
 
         return reset_token
+#------Password Reset Link Generation------
+    @staticmethod
+    def get_password_reset_link(reset_token):
+        return (
+            f"{settings.FRONTEND_RESET_PASSWORD_URL}"
+            f"?uuid={reset_token.user.uuid}"
+            f"&token={reset_token.token}"
+        )
+
+    @staticmethod
+    def verify_password_reset_user(uuid_value, email):
+        try:
+            user = CustomUser.objects.get(
+                uuid=uuid_value,
+                email__iexact=email,
+            )
+        except CustomUser.DoesNotExist:
+            raise ValidationError({
+                "detail": "Invalid user details."
+            })
+
+        if not user.is_active:
+            raise ValidationError({
+                "detail": "This account is inactive."
+            })
+
+        return user
+        
+
+    

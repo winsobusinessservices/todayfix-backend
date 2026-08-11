@@ -1,13 +1,14 @@
 
 from django.contrib import admin
 
-from .models import CustomUser, PasswordResetOTP, PasswordResetToken
-
+from .models import CustomUser, PasswordResetToken
+from .models import EmailTemplate
 
 @admin.register(CustomUser)
 class CustomUserAdmin(admin.ModelAdmin):
     list_display = (
         "id",
+        "uuid",
         "first_name",
         "last_name",
         "email",
@@ -30,27 +31,7 @@ class CustomUserAdmin(admin.ModelAdmin):
         "is_staff",
     )
 
-#---------------------------------------PasswordResetOTPAdmin---------------------------------
-@admin.register(PasswordResetOTP)
-class PasswordResetOTPAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "user",
-        "otp",
-        "created_at",
-        "expires_at",
-        "is_used",
-    )
 
-    list_filter = (
-        "is_used",
-        "created_at",
-    )
-
-    search_fields = (
-        "user__email",
-        "otp",
-    )
 
 
 @admin.register(PasswordResetToken)
@@ -72,3 +53,16 @@ class PasswordResetTokenAdmin(admin.ModelAdmin):
         "user__email",
         "token",
     )
+
+@admin.register(EmailTemplate)
+class EmailTemplateAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "subject",
+    )
+
+    search_fields = (
+        "name",
+        "subject",
+    )
+    

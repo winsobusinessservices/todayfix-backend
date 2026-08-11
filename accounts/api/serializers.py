@@ -1,13 +1,15 @@
 from ast import pattern
 import email
+from urllib import request
 from xml.parsers.expat import errors
 from django.utils import timezone   
 from attr import attrs
 from django.contrib.auth import authenticate
+from flask import request
 from rest_framework import serializers
 import re
 
-from accounts.models import CustomUser, PasswordResetOTP, PasswordResetToken
+from accounts.models import CustomUser, PasswordResetToken
 from accounts.choices import UserRole
 
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -287,97 +289,141 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-#-------------------------------------------------------Forget password serializer------------------------------------------------------------
-class ForgotPasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+#--------------------------------------------------------Unified Password Reset serializer------------------------------------------------------------
+class UnifiedPasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    uuid = serializers.UUIDField(required=False)
 
-    def validate_email(self, value):
-        value = value.lower().strip()
-
-        try:
-            user = CustomUser.objects.get(email__iexact=value)
-        except CustomUser.DoesNotExist:
-            raise serializers.ValidationError(
-                "No account found with this email address."
-            )
-
-        if not user.is_active:
-            raise serializers.ValidationError(
-                "This account is inactive."
-            )
-
-        self.user = user
-        return value
-
-    def create_otp(self):
-        otp = str(random.randint(100000, 999999))
-
-        # Invalidate previous unused OTPs
-        PasswordResetOTP.objects.filter(
-            user=self.user,
-            is_used=False,
-        ).update(is_used=True)
-
-        # Create new OTP
-        password_reset_otp = PasswordResetOTP.objects.create(
-            user=self.user,
-            otp=otp,
-            expires_at=timezone.now() + timedelta(minutes=5),
-        )
-
-        return password_reset_otp
-
-    def save(self, **kwargs):
-        self.password_reset_otp = self.create_otp()
-        return self.password_reset_otp
-    
-#-------------------------------------------------------Password Reset Link serializer------------------------------------------------------------
-class PasswordResetLinkSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-    def validate_email(self, value):
-        value = value.lower().strip()
-
-        try:
-            user = CustomUser.objects.get(
-                email__iexact=value
-            )
-        except CustomUser.DoesNotExist:
-            raise serializers.ValidationError(
-                "No account found with this email address."
-            )
-
-        if not user.is_active:
-            raise serializers.ValidationError(
-                "This account is inactive."
-            )
-
-        self.user = user
-        return value
-
-class ResetPasswordLinkSerializer(serializers.Serializer):
-    token = serializers.CharField()
-    password = serializers.CharField(
-        write_only=True
+    token = serializers.CharField(
+        required=False,
+        write_only=True,
     )
+
+    new_password = serializers.CharField(
+        write_only=True,
+        required=False,
+    )
+
     confirm_password = serializers.CharField(
-        write_only=True
+        write_only=True,
+        required=False,
     )
 
     def validate(self, attrs):
-        token = attrs["token"]
-        password = attrs["password"]
-        confirm_password = attrs["confirm_password"]
+        request = self.context.get("request")
+
+        # --------------------------------------------------
+        # FLOW 1: Logged-in user
+        # --------------------------------------------------
+        if request and request.user.is_authenticated:
+
+            if not attrs.get("new_password"):
+                raise serializers.ValidationError({
+                    "new_password": "This field is required."
+                })
+
+            if not attrs.get("confirm_password"):
+                raise serializers.ValidationError({
+                    "confirm_password": "This field is required."
+                })
+
+            self.user = request.user
+
+            self._validate_password(
+                attrs["new_password"],
+                attrs["confirm_password"],
+            )
+
+            return attrs
+
+        # --------------------------------------------------
+        # FLOW 2: Logged-out user requests reset link
+        # --------------------------------------------------
+        if attrs.get("email") and not attrs.get("token"):
+
+            email = attrs["email"].lower().strip()
+
+            try:
+                user = CustomUser.objects.get(
+                    email__iexact=email
+                )
+            except CustomUser.DoesNotExist:
+                raise serializers.ValidationError({
+                    "email": "No account found with this email address."
+                })
+
+            if not user.is_active:
+                raise serializers.ValidationError({
+                    "email": "This account is inactive."
+                })
+
+            self.user = user
+
+            return attrs
+
+        # --------------------------------------------------
+        # FLOW 3: Logged-out user resets using link
+        # --------------------------------------------------
+        if not attrs.get("uuid"):
+            raise serializers.ValidationError({
+                "uuid": "This field is required."
+            })
+
+        if not attrs.get("token"):
+            raise serializers.ValidationError({
+                "token": "This field is required."
+            })
+
+        if not attrs.get("new_password"):
+            raise serializers.ValidationError({
+                "new_password": "This field is required."
+            })
+
+        if not attrs.get("confirm_password"):
+            raise serializers.ValidationError({
+                "confirm_password": "This field is required."
+            })
+
+        try:
+            reset_token = PasswordResetToken.objects.get(
+                token=attrs["token"],
+                is_used=False,
+            )
+        except PasswordResetToken.DoesNotExist:
+            raise serializers.ValidationError({
+                "token": "Invalid or expired reset token."
+            })
+
+        # UUID + token double verification
+        if reset_token.user.uuid != attrs["uuid"]:
+            raise serializers.ValidationError({
+                "uuid": "UUID does not match the reset token."
+            })
+
+        if timezone.now() > reset_token.expires_at:
+            raise serializers.ValidationError({
+                "token": "Reset token has expired."
+            })
+
+        self.user = reset_token.user
+        self.reset_token = reset_token
+
+        self._validate_password(
+            attrs["new_password"],
+            attrs["confirm_password"],
+        )
+
+        return attrs
+
+    def _validate_password(self, password, confirm_password):
 
         errors = {}
 
-        # Check passwords match
         if password != confirm_password:
             errors["confirm_password"] = [
                 "Passwords do not match."
             ]
 
-        # Password validation
         password_errors = []
 
         if len(password) < 6 or len(password) > 20:
@@ -402,178 +448,7 @@ class ResetPasswordLinkSerializer(serializers.Serializer):
 
         if not re.search(
             r'[!@#$%^&*(),.?":{}|<>]',
-            password
-        ):
-            password_errors.append(
-                "Password must contain at least one special character."
-            )
-
-        if password_errors:
-            errors["password"] = password_errors
-
-        if errors:
-            raise serializers.ValidationError(errors)
-
-        # Check reset token
-        try:
-            reset_token = PasswordResetToken.objects.get(
-                token=token
-            )
-        except PasswordResetToken.DoesNotExist:
-            raise serializers.ValidationError(
-                {
-                    "token": "Invalid password reset token."
-                }
-            )
-
-        # Check whether token was already used
-        if reset_token.is_used:
-            raise serializers.ValidationError(
-                {
-                    "token": "This password reset link has already been used."
-                }
-            )
-
-        # Check expiry
-        if reset_token.expires_at <= timezone.now():
-            raise serializers.ValidationError(
-                {
-                    "token": "This password reset link has expired."
-                }
-            )
-
-        attrs["reset_token"] = reset_token
-
-        return attrs
-
-#-------------------------------------------------------Verify OTP serializer------------------------------------------------------------
-class VerifyPasswordResetOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(
-        max_length=6,
-        min_length=6,
-    )
-
-    def validate(self, attrs):
-        email = attrs["email"].lower().strip()
-        otp = attrs["otp"]
-
-        try:
-            user = CustomUser.objects.get(
-                email__iexact=email
-            )
-        except CustomUser.DoesNotExist:
-            raise serializers.ValidationError(
-                {
-                    "email": "No account found with this email address."
-                }
-            )
-
-        if not user.is_active:
-            raise serializers.ValidationError(
-                {
-                    "email": "This account is inactive."
-                }
-            )
-
-        try:
-            reset_otp = PasswordResetOTP.objects.filter(
-                user=user,
-                otp=otp,
-                is_used=False,
-            ).latest("created_at")
-        except PasswordResetOTP.DoesNotExist:
-            raise serializers.ValidationError(
-                {
-                    "otp": "Invalid OTP."
-                }
-            )
-
-        if timezone.now() > reset_otp.expires_at:
-            raise serializers.ValidationError(
-                {
-                    "otp": "OTP has expired."
-                }
-            )
-
-        attrs["user"] = user
-        attrs["reset_otp"] = reset_otp
-
-        return attrs
-#-------------------------------------------------------Reset Password serializer------------------------------------------------------------
-class ResetPasswordSerializer(serializers.Serializer):
-    token = serializers.CharField(
-        write_only=True,
-    )
-
-    new_password = serializers.CharField(
-        write_only=True,
-        min_length=8,
-    )
-
-    confirm_password = serializers.CharField(
-        write_only=True,
-    )
-
-    def validate(self, attrs):
-        token = attrs["token"]
-        new_password = attrs["new_password"]
-        confirm_password = attrs["confirm_password"]
-
-        errors = {}
-
-        # Validate reset token
-        try:
-            reset_token = PasswordResetToken.objects.get(
-                token=token,
-                is_used=False,
-            )
-        except PasswordResetToken.DoesNotExist:
-            raise serializers.ValidationError(
-                {
-                    "token": "Invalid or expired reset token."
-                }
-            )
-
-        if timezone.now() > reset_token.expires_at:
-            raise serializers.ValidationError(
-                {
-                    "token": "Reset token has expired."
-                }
-            )
-
-        # Validate password confirmation
-        if new_password != confirm_password:
-            errors["confirm_password"] = [
-                "Passwords do not match."
-            ]
-
-        # Validate password rules
-        password_errors = []
-
-        if len(new_password) < 6 or len(new_password) > 20:
-            password_errors.append(
-                "Password must be between 6 and 20 characters."
-            )
-
-        if not re.search(r"[A-Z]", new_password):
-            password_errors.append(
-                "Password must contain at least one uppercase letter."
-            )
-
-        if not re.search(r"[a-z]", new_password):
-            password_errors.append(
-                "Password must contain at least one lowercase letter."
-            )
-
-        if not re.search(r"\d", new_password):
-            password_errors.append(
-                "Password must contain at least one number."
-            )
-
-        if not re.search(
-            r'[!@#$%^&*(),.?":{}|<>]',
-            new_password,
+            password,
         ):
             password_errors.append(
                 "Password must contain at least one special character."
@@ -585,12 +460,31 @@ class ResetPasswordSerializer(serializers.Serializer):
         if errors:
             raise serializers.ValidationError(errors)
 
-        attrs["reset_token"] = reset_token
-        attrs["user"] = reset_token.user
+#--------------------------------------------------------Forgot Password serializer------------------------------------------------------------
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
 
-        return attrs
+    def validate_email(self, value):
+        value = value.lower().strip()
+
+        try:
+            user = CustomUser.objects.get(
+                email__iexact=value
+            )
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError(
+                "No account found with this email address."
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                "This account is inactive."
+            )
+
+        self.user = user
+
+        return value
     
-
 
         
 

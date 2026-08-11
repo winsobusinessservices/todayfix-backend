@@ -21,3 +21,4 @@ class BusinessProfileAdmin(admin.ModelAdmin):
 class ManagedBusinessAdmin(admin.ModelAdmin):
     list_display = ("id", "manager_business", "linked_business", "created_at")
     search_fields = ("manager_business__name", "linked_business__name")
+

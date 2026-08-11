@@ -14,3 +14,4 @@ class IsAdminRole(BasePermission):
             and user.role == "ADMIN"
             and user.is_staff
         )
+    
