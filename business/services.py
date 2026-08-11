@@ -2,75 +2,268 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.choices import UserRole
-from .choices import UpgradeRequestStatus
-from .models import BusinessUpgradeRequest
+
+from .choices import (
+    BusinessApplicationStatus,
+)
+from .models import (
+    BusinessApplication,
+    BusinessProfile,
+)
 
 
-class BusinessUpgradeService:
+class BusinessApplicationService:
+
     @staticmethod
-    @transaction.atomic
-    def submit(user, reason=""):
-        if user.role != UserRole.USER:
-            raise ValueError("Only USER accounts can request a business upgrade.")
+    def submit(user, business_type):
 
-        pending = BusinessUpgradeRequest.objects.filter(
-            user=user,
-            status=UpgradeRequestStatus.PENDING,
-        ).first()
-        if pending:
-            raise ValueError("A business upgrade request is already pending.")
+        # =================================================
+        # USER ROLE CHECK
+        # =================================================
 
-        return BusinessUpgradeRequest.objects.create(
+        if getattr(user, "role", None) != UserRole.USER:
+            raise ValueError(
+                "Only USER accounts can submit "
+                "a business application."
+            )
+
+        # =================================================
+        # PENDING APPLICATION CHECK
+        # =================================================
+
+        if BusinessApplication.objects.filter(
             user=user,
-            reason=reason,
-            status=UpgradeRequestStatus.PENDING,
+            status=BusinessApplicationStatus.PENDING,
+        ).exists():
+
+            raise ValueError(
+                "You already have a pending "
+                "business application."
+            )
+
+        # =================================================
+        # CREATE APPLICATION
+        # =================================================
+
+        application = BusinessApplication(
+            user=user,
+            business_type=business_type,
+            status=BusinessApplicationStatus.PENDING,
         )
 
+        application.full_clean()
+        application.save()
+
+        return application
+
+    # =====================================================
+    # APPROVE
+    # =====================================================
+
     @staticmethod
     @transaction.atomic
-    def approve(request_obj, admin_user):
-        if request_obj.status != UpgradeRequestStatus.PENDING:
-            raise ValueError("Only pending requests can be approved.")
+    def approve(
+        application,
+        admin_user,
+    ):
 
-        user = request_obj.user
+        # -------------------------------------------------
+        # STATUS CHECK
+        # -------------------------------------------------
+
+        if (
+            application.status
+            != BusinessApplicationStatus.PENDING
+        ):
+            raise ValueError(
+                "Only pending applications "
+                "can be approved."
+            )
+
+        # -------------------------------------------------
+        # REQUIRED DATA CHECK
+        # -------------------------------------------------
+
+        identity = getattr(
+            application,
+            "identity",
+            None,
+        )
+
+        bank_account = getattr(
+            application,
+            "bank_account",
+            None,
+        )
+
+        if identity is None:
+            raise ValueError(
+                "Business identity information "
+                "is missing."
+            )
+
+        if bank_account is None:
+            raise ValueError(
+                "Bank account information "
+                "is missing."
+            )
+
+        # -------------------------------------------------
+        # FINAL MODEL VALIDATION
+        # -------------------------------------------------
+
+        identity.full_clean()
+        bank_account.full_clean()
+
+        # -------------------------------------------------
+        # USER ROLE
+        # -------------------------------------------------
+
+        user = application.user
+
+        if user.role != UserRole.USER:
+            raise ValueError(
+                "Only USER accounts can be "
+                "converted to BUSINESS."
+            )
+
+        # -------------------------------------------------
+        # CHANGE USER ROLE
+        # -------------------------------------------------
+
         user.role = UserRole.BUSINESS
-        user.has_business = True
-        user.business_verified = True
-        user.save(update_fields=[
-            "role",
-            "has_business",
-            "business_verified",
-            "updated_at",
-        ])
 
-        request_obj.status = UpgradeRequestStatus.APPROVED
-        request_obj.reviewed_by = admin_user
-        request_obj.reviewed_at = timezone.now()
-        request_obj.rejection_reason = ""
-        request_obj.save(update_fields=[
-            "status",
-            "reviewed_by",
-            "reviewed_at",
-            "rejection_reason",
-            "updated_at",
-        ])
-        return request_obj
+        user.save(
+            update_fields=["role"]
+        )
+
+        # -------------------------------------------------
+        # APPROVE APPLICATION
+        # -------------------------------------------------
+
+        application.status = (
+            BusinessApplicationStatus.APPROVED
+        )
+
+        application.reviewed_by = admin_user
+
+        application.reviewed_at = (
+            timezone.now()
+        )
+
+        application.rejection_reason = ""
+
+        application.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+            ]
+        )
+
+        # -------------------------------------------------
+        # CREATE BUSINESS PROFILE
+        # -------------------------------------------------
+
+        profile, created = (
+            BusinessProfile.objects.get_or_create(
+                owner=user,
+                business_type=(
+                    application.business_type
+                ),
+                defaults={
+                    "name": (
+                        getattr(
+                            user,
+                            "name",
+                            None,
+                        )
+                        or user.email
+                    ),
+                    "email": getattr(
+                        user,
+                        "email",
+                        "",
+                    ),
+                    "phone": getattr(
+                        user,
+                        "phone",
+                        "",
+                    ),
+                    "website": (
+                        identity.website
+                    ),
+                },
+            )
+        )
+
+        return application, profile
+
+    # =====================================================
+    # REJECT
+    # =====================================================
 
     @staticmethod
     @transaction.atomic
-    def reject(request_obj, admin_user, reason=""):
-        if request_obj.status != UpgradeRequestStatus.PENDING:
-            raise ValueError("Only pending requests can be rejected.")
+    def reject(
+        application,
+        admin_user,
+        reason,
+    ):
 
-        request_obj.status = UpgradeRequestStatus.REJECTED
-        request_obj.reviewed_by = admin_user
-        request_obj.reviewed_at = timezone.now()
-        request_obj.rejection_reason = reason
-        request_obj.save(update_fields=[
-            "status",
-            "reviewed_by",
-            "reviewed_at",
-            "rejection_reason",
-            "updated_at",
-        ])
-        return request_obj
+        # -------------------------------------------------
+        # STATUS CHECK
+        # -------------------------------------------------
+
+        if (
+            application.status
+            != BusinessApplicationStatus.PENDING
+        ):
+            raise ValueError(
+                "Only pending applications "
+                "can be rejected."
+            )
+
+        # -------------------------------------------------
+        # REASON CHECK
+        # -------------------------------------------------
+
+        reason = (
+            reason or ""
+        ).strip()
+
+        if not reason:
+            raise ValueError(
+                "A rejection reason is required "
+                "when rejecting an application."
+            )
+
+        # -------------------------------------------------
+        # UPDATE APPLICATION
+        # -------------------------------------------------
+
+        application.status = (
+            BusinessApplicationStatus.REJECTED
+        )
+
+        application.reviewed_by = admin_user
+
+        application.reviewed_at = (
+            timezone.now()
+        )
+
+        application.rejection_reason = reason
+
+        application.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+            ]
+        )
+
+        return application
+
+        

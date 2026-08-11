@@ -1,16 +1,30 @@
 from rest_framework.permissions import BasePermission
 
+from accounts.choices import UserRole
+
 
 class IsAdminRole(BasePermission):
-    """Allow only TodayFix ADMIN/super-admin accounts."""
 
-    message = "Administrator access is required."
+    message = "Admin access is required."
 
-    def has_permission(self, request, view):
-        user = request.user
-        return bool(
-            user
-            and user.is_authenticated
-            and user.role == "ADMIN"
-            and user.is_staff
+    def has_permission(
+        self,
+        request,
+        view,
+    ):
+
+        return (
+            bool(
+                request.user
+                and request.user.is_authenticated
+            )
+            and getattr(
+                request.user,
+                "role",
+                None,
+            )
+            == UserRole.ADMIN
         )
+
+
+        

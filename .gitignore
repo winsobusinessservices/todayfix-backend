@@ -1,83 +1,108 @@
-# ==============================
+
 # Python
-# ==============================
+
+
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
 *.pyd
 
-# ==============================
 # Virtual Environment
-# ==============================
+
+
 venv/
 .venv/
 env/
 ENV/
 
-# ==============================
+
 # Django
-# ==============================
+
+
 *.log
 db.sqlite3
 db.sqlite3-journal
+*.sqlite
 
-# Django collected static files
 staticfiles/
 
-# ==============================
 # Environment / Secrets
-# ==============================
+  
+
 .env
 .env.*
 !.env.example
 
-# ==============================
+
 # Media / User Uploaded Files
-# ==============================
+
+
 media/
 
-# ==============================
+
 # IDE / Editors
-# ==============================
+
+
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# ==============================
 # OS Files
-# ==============================
+ 
+
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ==============================
 # Testing / Coverage
-# ==============================
+
+
 .coverage
 coverage.xml
 htmlcov/
 .pytest_cache/
 .tox/
 
-# ==============================
+
 # Build / Packaging
-# ==============================
+
+
 build/
 dist/
 *.egg-info/
 .eggs/
 
-# ==============================
+
 # Type Checking
-# ==============================
+
+
 .mypy_cache/
 .pyre/
 
-# ==============================
+
 # Temporary Files
-# ==============================
+
+
 *.tmp
 *.temp
 *.bak
+
+
+# Django Migrations
+
+
+**/migrations/*.py
+!**/migrations/__init__.py
+
+# Migration cache
+**/migrations/__pycache__/
+
+
+# Docker
+
+
+Dockerfile
+docker-compose.yml
+docker-compose.test.yml
