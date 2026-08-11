@@ -20,3 +20,7 @@ __pycache__/
 .pytest_cache/
 
 *.log
+
+# Django migrations
+**/migrations/*.py
+!**/migrations/__init__.py
