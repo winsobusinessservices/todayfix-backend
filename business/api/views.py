@@ -1,166 +1,720 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
+
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+)
+
 from rest_framework import status
+from rest_framework.parsers import (
+    FormParser,
+    JSONParser,
+    MultiPartParser,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
 
 from accounts.choices import UserRole
-from .serializers import (
-    BusinessProfileSerializer,
-    BusinessUpgradeRequestSerializer,
-    ManagedBusinessSerializer,
-    RejectUpgradeSerializer,
+
+from ..choices import BusinessApplicationStatus
+from ..models import (
+    BusinessApplication,
+    BusinessBankAccount,
+    BusinessIdentity,
+    BusinessProfile,
 )
-from ..choices import BusinessType, UpgradeRequestStatus
-from ..models import BusinessProfile, BusinessUpgradeRequest, ManagedBusiness
-from ..services import BusinessUpgradeService
 from ..permissions import IsAdminRole
+from ..services import BusinessApplicationService
+
+from .serializers import (
+    BusinessApplicationFullSerializer,
+    BusinessApplicationSubmitSerializer,
+    BusinessProfileSerializer,
+    RejectBusinessApplicationSerializer,
+)
 
 
-class SubmitBusinessUpgradeAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+# =========================================================
+# USER
+# CREATE BUSINESS APPLICATION
+# =========================================================
+
+class BusinessApplicationCreateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+        JSONParser,
+    ]
 
     @extend_schema(
-        tags=["Business Upgrade"],
-        request=BusinessUpgradeRequestSerializer,
-        responses=BusinessUpgradeRequestSerializer,
+        tags=["Business Application"],
+        summary="Submit complete business application",
+        description=(
+            "Only USER accounts can use this API. "
+            "All business application information must "
+            "be submitted in ONE multipart/form-data request.\n\n"
+
+            "INDIVIDUAL:\n"
+            "- PAN OR Aadhaar minimum one complete pair\n"
+            "- Bank details mandatory\n\n"
+
+            "COMPANY / INVESTOR:\n"
+            "- PAN number + document mandatory\n"
+            "- Aadhaar number + document mandatory\n"
+            "- At least one of GST/Udyam/Labour/BBMP/Food "
+            "registration mandatory\n"
+            "- Internal store photo mandatory\n"
+            "- External store photo mandatory\n"
+            "- Cancelled GST bill/book photo mandatory\n"
+            "- Logo optional\n"
+            "- Website optional\n"
+            "- Bank details mandatory"
+        ),
+        request=BusinessApplicationSubmitSerializer,
+        responses={
+            201: BusinessApplicationFullSerializer,
+            400: OpenApiResponse(
+                description="Validation error"
+            ),
+            403: OpenApiResponse(
+                description="Only USER accounts allowed"
+            ),
+        },
     )
     def post(self, request):
+
+        # =================================================
+        # ROLE CHECK
+        # =================================================
+
         if request.user.role != UserRole.USER:
+
             return Response(
-                {"success": False, "message": "Only USER accounts can request a business upgrade."},
+                {
+                    "success": False,
+                    "message": (
+                        "Only USER accounts can "
+                        "submit a business application."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # =================================================
+        # VALIDATE EVERYTHING
+        # =================================================
+
+        serializer = (
+            BusinessApplicationSubmitSerializer(
+                data=request.data
+            )
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        data = serializer.validated_data
+
+        # =================================================
+        # PENDING APPLICATION CHECK
+        # =================================================
+
+        if BusinessApplication.objects.filter(
+            user=request.user,
+            status=(
+                BusinessApplicationStatus.PENDING
+            ),
+        ).exists():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You already have a pending "
+                        "business application."
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        serializer = BusinessUpgradeRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        # =================================================
+        # CREATE EVERYTHING ATOMICALLY
+        # =================================================
 
         try:
-            upgrade = BusinessUpgradeService.submit(
-                request.user,
-                serializer.validated_data.get("reason", ""),
-            )
+
+            with transaction.atomic():
+
+                # -----------------------------------------
+                # APPLICATION
+                # -----------------------------------------
+
+                application = (
+                    BusinessApplicationService.submit(
+                        user=request.user,
+                        business_type=data[
+                            "business_type"
+                        ],
+                    )
+                )
+
+                # -----------------------------------------
+                # IDENTITY
+                # -----------------------------------------
+
+                identity = (
+                    BusinessIdentity.objects.create(
+                        application=application,
+
+                        pan_number=data.get(
+                            "pan_number",
+                            "",
+                        ),
+
+                        pan_document=data.get(
+                            "pan_document"
+                        ),
+
+                        aadhaar_number=data.get(
+                            "aadhaar_number",
+                            "",
+                        ),
+
+                        aadhaar_document=data.get(
+                            "aadhaar_document"
+                        ),
+
+                        gst_number=data.get(
+                            "gst_number",
+                            "",
+                        ),
+
+                        udyam_number=data.get(
+                            "udyam_number",
+                            "",
+                        ),
+
+                        labour_license_number=data.get(
+                            "labour_license_number",
+                            "",
+                        ),
+
+                        bbmp_license_number=data.get(
+                            "bbmp_license_number",
+                            "",
+                        ),
+
+                        food_license_number=data.get(
+                            "food_license_number",
+                            "",
+                        ),
+
+                        internal_store_photo=data.get(
+                            "internal_store_photo"
+                        ),
+
+                        external_store_photo=data.get(
+                            "external_store_photo"
+                        ),
+
+                        cancelled_gst_bill_book_photo=(
+                            data.get(
+                                "cancelled_gst_bill_book_photo"
+                            )
+                        ),
+
+                        logo=data.get(
+                            "logo"
+                        ),
+
+                        website=data.get(
+                            "website",
+                            "",
+                        ),
+                    )
+                )
+
+                # -----------------------------------------
+                # BANK ACCOUNT
+                # -----------------------------------------
+
+                bank_account = (
+                    BusinessBankAccount.objects.create(
+                        application=application,
+
+                        account_holder_name=data[
+                            "account_holder_name"
+                        ],
+
+                        account_number=data[
+                            "account_number"
+                        ],
+
+                        ifsc_code=data[
+                            "ifsc_code"
+                        ],
+
+                        bank_name=data[
+                            "bank_name"
+                        ],
+
+                        branch_name=data.get(
+                            "branch_name",
+                            "",
+                        ),
+                    )
+                )
+
+                # -----------------------------------------
+                # FINAL MODEL VALIDATION
+                # -----------------------------------------
+
+                identity.full_clean()
+
+                bank_account.full_clean()
+
         except ValueError as exc:
-            return Response({"success": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(
             {
                 "success": True,
-                "message": "Business upgrade request submitted for admin review.",
-                "data": BusinessUpgradeRequestSerializer(upgrade).data,
+                "message": (
+                    "Business application submitted "
+                    "successfully. It is waiting for "
+                    "admin review."
+                ),
+                "data": (
+                    BusinessApplicationFullSerializer(
+                        application
+                    ).data
+                ),
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-class BusinessUpgradeStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+# =========================================================
+# USER
+# LIST MY APPLICATIONS
+# =========================================================
 
-    @extend_schema(tags=["Business Upgrade"], responses=BusinessUpgradeRequestSerializer(many=True))
+class BusinessApplicationListAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Application"],
+        summary="List my business applications",
+        responses=BusinessApplicationFullSerializer(
+            many=True
+        ),
+    )
     def get(self, request):
-        requests = BusinessUpgradeRequest.objects.filter(user=request.user)
+
+        applications = (
+            BusinessApplication.objects
+            .filter(
+                user=request.user
+            )
+            .select_related(
+                "user",
+                "reviewed_by",
+            )
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            )
+        )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                applications,
+                many=True,
+            )
+        )
+
         return Response(
             {
                 "success": True,
-                "data": BusinessUpgradeRequestSerializer(requests, many=True).data,
+                "data": serializer.data,
             }
         )
 
 
-class AdminUpgradeRequestListAPIView(APIView):
-    permission_classes = [IsAdminRole]
+# =========================================================
+# USER
+# APPLICATION DETAIL
+# =========================================================
 
-    @extend_schema(tags=["Business Administration"], responses=BusinessUpgradeRequestSerializer(many=True))
-    def get(self, request):
-        requests = BusinessUpgradeRequest.objects.select_related("user", "reviewed_by")
-        status_filter = request.query_params.get("status")
-        if status_filter:
-            requests = requests.filter(status=status_filter.upper())
-        return Response({"success": True, "data": BusinessUpgradeRequestSerializer(requests, many=True).data})
+class BusinessApplicationDetailAPIView(APIView):
 
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-class AdminApproveUpgradeAPIView(APIView):
-    permission_classes = [IsAdminRole]
+    @extend_schema(
+        tags=["Business Application"],
+        summary="View my business application",
+        responses=BusinessApplicationFullSerializer,
+    )
+    def get(
+        self,
+        request,
+        uuid,
+    ):
 
-    @extend_schema(tags=["Business Administration"], request=None)
-    def post(self, request, pk):
-        upgrade = get_object_or_404(BusinessUpgradeRequest, pk=pk)
-        try:
-            upgrade = BusinessUpgradeService.approve(upgrade, request.user)
-        except ValueError as exc:
-            return Response({"success": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({
-            "success": True,
-            "message": "Business upgrade approved. User role is now BUSINESS.",
-            "data": BusinessUpgradeRequestSerializer(upgrade).data,
-        })
-
-
-class AdminRejectUpgradeAPIView(APIView):
-    permission_classes = [IsAdminRole]
-
-    @extend_schema(tags=["Business Administration"], request=RejectUpgradeSerializer)
-    def post(self, request, pk):
-        upgrade = get_object_or_404(BusinessUpgradeRequest, pk=pk)
-        serializer = RejectUpgradeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            upgrade = BusinessUpgradeService.reject(
-                upgrade,
-                request.user,
-                serializer.validated_data.get("reason", ""),
+        application = get_object_or_404(
+            BusinessApplication.objects
+            .select_related(
+                "user",
+                "reviewed_by",
             )
-        except ValueError as exc:
-            return Response({"success": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({
-            "success": True,
-            "message": "Business upgrade request rejected.",
-            "data": BusinessUpgradeRequestSerializer(upgrade).data,
-        })
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            ),
+            uuid=uuid,
+            user=request.user,
+        )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                application
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
 
 
-class BusinessProfileListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+# =========================================================
+# ADMIN
+# LIST APPLICATIONS
+# =========================================================
 
-    @extend_schema(tags=["Business Profiles"], responses=BusinessProfileSerializer(many=True))
+class AdminBusinessApplicationListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List business applications",
+        responses=BusinessApplicationFullSerializer(
+            many=True
+        ),
+    )
     def get(self, request):
-        profiles = BusinessProfile.objects.filter(owner=request.user)
-        return Response({"success": True, "data": BusinessProfileSerializer(profiles, many=True).data})
 
-    @extend_schema(tags=["Business Profiles"], request=BusinessProfileSerializer, responses=BusinessProfileSerializer)
-    def post(self, request):
-        if request.user.role != UserRole.BUSINESS:
-            return Response({"success": False, "message": "Business approval is required first."}, status=status.HTTP_403_FORBIDDEN)
+        applications = (
+            BusinessApplication.objects
+            .select_related(
+                "user",
+                "reviewed_by",
+            )
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            )
+        )
 
-        serializer = BusinessProfileSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        profile = serializer.save(owner=request.user)
-        return Response({"success": True, "message": "Business profile created.", "data": BusinessProfileSerializer(profile).data}, status=status.HTTP_201_CREATED)
+        status_filter = (
+            request.query_params.get(
+                "status"
+            )
+        )
+
+        if status_filter:
+
+            applications = applications.filter(
+                status=status_filter.upper()
+            )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                applications,
+                many=True,
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
 
 
-class ManagedBusinessCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+# =========================================================
+# ADMIN
+# APPROVE
+# =========================================================
 
-    @extend_schema(tags=["Business Management"], request=ManagedBusinessSerializer, responses=ManagedBusinessSerializer)
-    def post(self, request):
-        if request.user.role != UserRole.BUSINESS:
-            return Response({"success": False, "message": "BUSINESS role required."}, status=status.HTTP_403_FORBIDDEN)
+class AdminApproveBusinessApplicationAPIView(
+    APIView
+):
 
-        linked = get_object_or_404(BusinessProfile, pk=request.data.get("linked_business"))
-        manager = get_object_or_404(BusinessProfile, pk=request.data.get("manager_business"))
+    permission_classes = [
+        IsAdminRole
+    ]
 
-        if manager.owner_id != request.user.id:
-            return Response({"success": False, "message": "You do not own the manager business."}, status=status.HTTP_403_FORBIDDEN)
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Approve business application",
+        description=(
+            "Approving the application changes the "
+            "USER role to BUSINESS and creates the "
+            "active BusinessProfile."
+        ),
+        request=None,
+        responses=BusinessApplicationFullSerializer,
+    )
+    def post(
+        self,
+        request,
+        uuid,
+    ):
 
-        if manager.business_type not in {BusinessType.COMPANY, BusinessType.INVESTOR}:
-            return Response({"success": False, "message": "Only COMPANY and INVESTOR profiles can manage businesses."}, status=status.HTTP_400_BAD_REQUEST)
+        application = get_object_or_404(
+            BusinessApplication,
+            uuid=uuid,
+        )
 
-        relation = ManagedBusiness(manager_business=manager, linked_business=linked)
         try:
-            relation.full_clean()
-            relation.save()
-        except Exception as exc:
-            return Response({"success": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"success": True, "message": "Business linked successfully.", "data": ManagedBusinessSerializer(relation).data}, status=status.HTTP_201_CREATED)
+            application, profile = (
+                BusinessApplicationService.approve(
+                    application=application,
+                    admin_user=request.user,
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business application approved. "
+                    "User role is now BUSINESS."
+                ),
+                "data": (
+                    BusinessApplicationFullSerializer(
+                        application
+                    ).data
+                ),
+                "business_profile_uuid": str(
+                    profile.uuid
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ADMIN
+# REJECT
+# =========================================================
+
+class AdminRejectBusinessApplicationAPIView(
+    APIView
+):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Reject business application",
+        description=(
+            "Admin must provide a rejection reason."
+        ),
+        request=RejectBusinessApplicationSerializer,
+        responses=BusinessApplicationFullSerializer,
+    )
+    def post(
+        self,
+        request,
+        uuid,
+    ):
+
+        application = get_object_or_404(
+            BusinessApplication,
+            uuid=uuid,
+        )
+
+        serializer = (
+            RejectBusinessApplicationSerializer(
+                data=request.data
+            )
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        try:
+
+            application = (
+                BusinessApplicationService.reject(
+                    application=application,
+                    admin_user=request.user,
+                    reason=serializer.validated_data[
+                        "reason"
+                    ],
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business application rejected."
+                ),
+                "data": (
+                    BusinessApplicationFullSerializer(
+                        application
+                    ).data
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# BUSINESS PROFILE
+# =========================================================
+
+class BusinessProfileListAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Profile"],
+        summary="List my business profiles",
+        responses=BusinessProfileSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        profiles = (
+            BusinessProfile.objects
+            .filter(
+                owner=request.user
+            )
+        )
+
+        serializer = (
+            BusinessProfileSerializer(
+                profiles,
+                many=True,
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+# =========================================================
+# BUSINESS PROFILE UPDATE
+# =========================================================
+
+class BusinessProfileUpdateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Profile"],
+        summary="Update my business profile",
+        request=BusinessProfileSerializer,
+        responses=BusinessProfileSerializer,
+    )
+    def patch(
+        self,
+        request,
+        uuid,
+    ):
+
+        profile = get_object_or_404(
+            BusinessProfile,
+            uuid=uuid,
+            owner=request.user,
+        )
+
+        serializer = (
+            BusinessProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True,
+            )
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business profile updated "
+                    "successfully."
+                ),
+                "data": serializer.data,
+            }
+        )
+
+        
