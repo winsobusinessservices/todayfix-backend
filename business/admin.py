@@ -89,10 +89,7 @@ class BusinessBankAccountAdmin(
 
 
 @admin.register(BusinessProfile)
-class BusinessProfileAdmin(
-    admin.ModelAdmin
-):
-
+class BusinessProfileAdmin(admin.ModelAdmin):
     list_display = (
         "uuid",
         "owner",
@@ -113,4 +110,16 @@ class BusinessProfileAdmin(
         "name",
     )
 
-    
+
+@admin.register(ManagedBusiness)
+class ManagedBusinessAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "manager_business",
+        "linked_business",
+        "created_at",
+    )
+    search_fields = (
+        "manager_business__name",
+        "linked_business__name",
+    )

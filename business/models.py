@@ -631,11 +631,8 @@ class BusinessProfile(TimeStampedModel):
                     "Only BUSINESS users can own "
                     "a business profile."
                 )
-
     def __str__(self):
         return (
             f"{self.name} "
             f"({self.business_type})"
         )
-
-        

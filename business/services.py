@@ -3,48 +3,32 @@ from django.utils import timezone
 
 from accounts.choices import UserRole
 
-from .choices import (
-    BusinessApplicationStatus,
-)
-from .models import (
-    BusinessApplication,
-    BusinessProfile,
-)
+from .choices import BusinessApplicationStatus
+from .models import BusinessApplication, BusinessProfile
 
 
 class BusinessApplicationService:
 
     @staticmethod
     def submit(user, business_type):
-
-        # =================================================
         # USER ROLE CHECK
-        # =================================================
-
         if getattr(user, "role", None) != UserRole.USER:
             raise ValueError(
                 "Only USER accounts can submit "
                 "a business application."
             )
 
-        # =================================================
         # PENDING APPLICATION CHECK
-        # =================================================
-
         if BusinessApplication.objects.filter(
             user=user,
             status=BusinessApplicationStatus.PENDING,
         ).exists():
-
             raise ValueError(
                 "You already have a pending "
                 "business application."
             )
 
-        # =================================================
         # CREATE APPLICATION
-        # =================================================
-
         application = BusinessApplication(
             user=user,
             business_type=business_type,
@@ -62,14 +46,7 @@ class BusinessApplicationService:
 
     @staticmethod
     @transaction.atomic
-    def approve(
-        application,
-        admin_user,
-    ):
-
-        # -------------------------------------------------
-        # STATUS CHECK
-        # -------------------------------------------------
+    def approve(application, admin_user):
 
         if (
             application.status
@@ -79,10 +56,6 @@ class BusinessApplicationService:
                 "Only pending applications "
                 "can be approved."
             )
-
-        # -------------------------------------------------
-        # REQUIRED DATA CHECK
-        # -------------------------------------------------
 
         identity = getattr(
             application,
@@ -108,16 +81,8 @@ class BusinessApplicationService:
                 "is missing."
             )
 
-        # -------------------------------------------------
-        # FINAL MODEL VALIDATION
-        # -------------------------------------------------
-
         identity.full_clean()
         bank_account.full_clean()
-
-        # -------------------------------------------------
-        # USER ROLE
-        # -------------------------------------------------
 
         user = application.user
 
@@ -127,30 +92,15 @@ class BusinessApplicationService:
                 "converted to BUSINESS."
             )
 
-        # -------------------------------------------------
-        # CHANGE USER ROLE
-        # -------------------------------------------------
-
         user.role = UserRole.BUSINESS
-
-        user.save(
-            update_fields=["role"]
-        )
-
-        # -------------------------------------------------
-        # APPROVE APPLICATION
-        # -------------------------------------------------
+        user.save(update_fields=["role"])
 
         application.status = (
             BusinessApplicationStatus.APPROVED
         )
 
         application.reviewed_by = admin_user
-
-        application.reviewed_at = (
-            timezone.now()
-        )
-
+        application.reviewed_at = timezone.now()
         application.rejection_reason = ""
 
         application.save(
@@ -162,16 +112,10 @@ class BusinessApplicationService:
             ]
         )
 
-        # -------------------------------------------------
-        # CREATE BUSINESS PROFILE
-        # -------------------------------------------------
-
         profile, created = (
             BusinessProfile.objects.get_or_create(
                 owner=user,
-                business_type=(
-                    application.business_type
-                ),
+                business_type=application.business_type,
                 defaults={
                     "name": (
                         getattr(
@@ -191,9 +135,7 @@ class BusinessApplicationService:
                         "phone",
                         "",
                     ),
-                    "website": (
-                        identity.website
-                    ),
+                    "website": identity.website,
                 },
             )
         )
@@ -212,10 +154,6 @@ class BusinessApplicationService:
         reason,
     ):
 
-        # -------------------------------------------------
-        # STATUS CHECK
-        # -------------------------------------------------
-
         if (
             application.status
             != BusinessApplicationStatus.PENDING
@@ -225,13 +163,7 @@ class BusinessApplicationService:
                 "can be rejected."
             )
 
-        # -------------------------------------------------
-        # REASON CHECK
-        # -------------------------------------------------
-
-        reason = (
-            reason or ""
-        ).strip()
+        reason = (reason or "").strip()
 
         if not reason:
             raise ValueError(
@@ -239,20 +171,12 @@ class BusinessApplicationService:
                 "when rejecting an application."
             )
 
-        # -------------------------------------------------
-        # UPDATE APPLICATION
-        # -------------------------------------------------
-
         application.status = (
             BusinessApplicationStatus.REJECTED
         )
 
         application.reviewed_by = admin_user
-
-        application.reviewed_at = (
-            timezone.now()
-        )
-
+        application.reviewed_at = timezone.now()
         application.rejection_reason = reason
 
         application.save(
@@ -265,5 +189,3 @@ class BusinessApplicationService:
         )
 
         return application
-
-        

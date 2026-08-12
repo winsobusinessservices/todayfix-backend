@@ -7,3 +7,4 @@ class UserRole(models.TextChoices):
     USER = "USER", _("User")
     BUSINESS = "BUSINESS", _("Business")
     
+    

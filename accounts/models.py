@@ -94,3 +94,36 @@ class Address(models.Model):
 
     def __str__(self):
         return f"{self.label} - {self.user.email}"
+
+#---------------------------------------------------Password reset token model---------------------------------------------------#
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+
+    token = models.CharField(
+        max_length=128,
+        unique=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    is_used = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Password reset token - {self.user.email}"
+
+
+#---------------------------------------------------Email template model---------------------------------------------------#
+class EmailTemplate(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+
+    def __str__(self):
+        return self.name
+    
+

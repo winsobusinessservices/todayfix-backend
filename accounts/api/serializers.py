@@ -1,17 +1,24 @@
 from ast import pattern
 import email
+from urllib import request
 from xml.parsers.expat import errors
 from django.utils import timezone   
 from attr import attrs
 from django.contrib.auth import authenticate
+from flask import request
 from rest_framework import serializers
 import re
 
-from accounts.models import CustomUser
+from accounts.models import CustomUser, PasswordResetToken
 from accounts.choices import UserRole
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
+
+import random
+from datetime import timedelta
+
+from django.utils import timezone
 
 
 class RegisterUserSerializer(serializers.ModelSerializer):
@@ -281,8 +288,203 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
-    
 
+#--------------------------------------------------------Unified Password Reset serializer------------------------------------------------------------
+class UnifiedPasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    uuid = serializers.UUIDField(required=False)
+
+    token = serializers.CharField(
+        required=False,
+        write_only=True,
+    )
+
+    new_password = serializers.CharField(
+        write_only=True,
+        required=False,
+    )
+
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=False,
+    )
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+
+        # --------------------------------------------------
+        # FLOW 1: Logged-in user
+        # --------------------------------------------------
+        if request and request.user.is_authenticated:
+
+            if not attrs.get("new_password"):
+                raise serializers.ValidationError({
+                    "new_password": "This field is required."
+                })
+
+            if not attrs.get("confirm_password"):
+                raise serializers.ValidationError({
+                    "confirm_password": "This field is required."
+                })
+
+            self.user = request.user
+
+            self._validate_password(
+                attrs["new_password"],
+                attrs["confirm_password"],
+            )
+
+            return attrs
+
+        # --------------------------------------------------
+        # FLOW 2: Logged-out user requests reset link
+        # --------------------------------------------------
+        if attrs.get("email") and not attrs.get("token"):
+
+            email = attrs["email"].lower().strip()
+
+            try:
+                user = CustomUser.objects.get(
+                    email__iexact=email
+                )
+            except CustomUser.DoesNotExist:
+                raise serializers.ValidationError({
+                    "email": "No account found with this email address."
+                })
+
+            if not user.is_active:
+                raise serializers.ValidationError({
+                    "email": "This account is inactive."
+                })
+
+            self.user = user
+
+            return attrs
+
+        # --------------------------------------------------
+        # FLOW 3: Logged-out user resets using link
+        # --------------------------------------------------
+        if not attrs.get("uuid"):
+            raise serializers.ValidationError({
+                "uuid": "This field is required."
+            })
+
+        if not attrs.get("token"):
+            raise serializers.ValidationError({
+                "token": "This field is required."
+            })
+
+        if not attrs.get("new_password"):
+            raise serializers.ValidationError({
+                "new_password": "This field is required."
+            })
+
+        if not attrs.get("confirm_password"):
+            raise serializers.ValidationError({
+                "confirm_password": "This field is required."
+            })
+
+        try:
+            reset_token = PasswordResetToken.objects.get(
+                token=attrs["token"],
+                is_used=False,
+            )
+        except PasswordResetToken.DoesNotExist:
+            raise serializers.ValidationError({
+                "token": "Invalid or expired reset token."
+            })
+
+        # UUID + token double verification
+        if reset_token.user.uuid != attrs["uuid"]:
+            raise serializers.ValidationError({
+                "uuid": "UUID does not match the reset token."
+            })
+
+        if timezone.now() > reset_token.expires_at:
+            raise serializers.ValidationError({
+                "token": "Reset token has expired."
+            })
+
+        self.user = reset_token.user
+        self.reset_token = reset_token
+
+        self._validate_password(
+            attrs["new_password"],
+            attrs["confirm_password"],
+        )
+
+        return attrs
+
+    def _validate_password(self, password, confirm_password):
+
+        errors = {}
+
+        if password != confirm_password:
+            errors["confirm_password"] = [
+                "Passwords do not match."
+            ]
+
+        password_errors = []
+
+        if len(password) < 6 or len(password) > 20:
+            password_errors.append(
+                "Password must be between 6 and 20 characters."
+            )
+
+        if not re.search(r"[A-Z]", password):
+            password_errors.append(
+                "Password must contain at least one uppercase letter."
+            )
+
+        if not re.search(r"[a-z]", password):
+            password_errors.append(
+                "Password must contain at least one lowercase letter."
+            )
+
+        if not re.search(r"\d", password):
+            password_errors.append(
+                "Password must contain at least one number."
+            )
+
+        if not re.search(
+            r'[!@#$%^&*(),.?":{}|<>]',
+            password,
+        ):
+            password_errors.append(
+                "Password must contain at least one special character."
+            )
+
+        if password_errors:
+            errors["new_password"] = password_errors
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+#--------------------------------------------------------Forgot Password serializer------------------------------------------------------------
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+
+        try:
+            user = CustomUser.objects.get(
+                email__iexact=value
+            )
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError(
+                "No account found with this email address."
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                "This account is inactive."
+            )
+
+        self.user = user
+
+        return value
+    
 
         
 

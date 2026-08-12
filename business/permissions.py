@@ -26,5 +26,3 @@ class IsAdminRole(BasePermission):
             == UserRole.ADMIN
         )
 
-
-        

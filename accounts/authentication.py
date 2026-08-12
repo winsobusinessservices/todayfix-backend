@@ -23,5 +23,6 @@ class CustomJWTAuthentication(JWTAuthentication):
 
         return user, token
     
+    
 
     

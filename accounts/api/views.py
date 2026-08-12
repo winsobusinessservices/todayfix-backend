@@ -1,3 +1,5 @@
+import email
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,13 +17,33 @@ from .serializers import (
     RegisterBusinessSerializer,
     LoginSerializer,
     LogoutSerializer,
-    UpdateProfileSerializer,
+    UpdateProfileSerializer, 
+    UnifiedPasswordResetSerializer,
+    ForgotPasswordSerializer,
 )
+
+from accounts.services import AuthService
 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+
+from drf_spectacular.utils import extend_schema
+from rest_framework.permissions import AllowAny
+
+
+from accounts.models import PasswordResetToken, EmailTemplate
+
+from django.conf import settings
+
+from django.template.loader import render_to_string
+from django.core.mail import EmailMultiAlternatives
 
 @extend_schema(
     auth=[],
@@ -505,8 +527,209 @@ class UpdateProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+#------Forgot Password View------#
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        auth=[],
+        tags=["Login"],
+        summary="Send password reset link",
+        request=ForgotPasswordSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Password reset link sent successfully."
+            ),
+            400: OpenApiResponse(
+                description="Invalid email."
+            ),
+        },
+    )
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.user
+
+        reset_token = AuthService.create_password_reset_token(
+            user
+        )
+
+        reset_link = AuthService.get_password_reset_link(
+            reset_token
+        )
+
+        template = EmailTemplate.objects.get(
+            name="PASSWORD_RESET_LINK"
+        )
+
+        html_message = render_to_string(
+            "emails/base_email.html",
+            {
+                "subject": template.subject,
+                "logo_url": "",
+                "first_name": user.first_name,
+                "message": template.message,
+                "otp": "",
+                "reset_link": reset_link,
+                "additional_message": "",
+            },
+        )
+
+        email = EmailMultiAlternatives(
+            subject=template.subject,
+            body=template.message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+
+        email.attach_alternative(
+            html_message,
+            "text/html",
+        )
+
+        email.send(fail_silently=False)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Password reset link sent successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+#---- Unified Password Reset View ---#
+class UnifiedPasswordResetView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["Login"],
+        request=UnifiedPasswordResetSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Password reset operation completed successfully."
+            ),
+            400: OpenApiResponse(
+                description="Invalid password reset request."
+            ),
+        },
+    )
+    def post(self, request):
+        serializer = UnifiedPasswordResetSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.user
+
+        # --------------------------------------------------
+        # LOGGED-OUT USER: Send reset link
+        # --------------------------------------------------
+        if (
+            not request.user.is_authenticated
+            and serializer.validated_data.get("email")
+            and not serializer.validated_data.get("token")
+        ):
+            reset_token = AuthService.create_password_reset_token(user)
+
+            reset_link = (
+                f"{settings.FRONTEND_DOMAIN}/reset-password/"
+                f"?uuid={user.uuid}"
+                f"&token={reset_token.token}"
+            )
+
+            template = EmailTemplate.objects.get(
+                name="PASSWORD_RESET_LINK"
+            )
+
+            subject = template.subject
+
+            message = template.message.replace(
+                "{{ first_name }}",
+                user.first_name or "User"
+            ).replace(
+                "{{ reset_link }}",
+                reset_link
+            ).replace(
+                "{{ expiry_minutes }}",
+                "15"
+            )
+
+            html_message = render_to_string(
+                "emails/base_email.html",
+                {
+                    "subject": subject,
+                    "logo_url": "",
+                    "first_name": user.first_name or "User",
+                    "message": message,
+                    "otp": "",
+                    "reset_link": reset_link,
+                    "additional_message": "",
+                },
+            )
+
+            email = EmailMultiAlternatives(
+                subject=subject,
+                body=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
+
+            email.attach_alternative(
+                html_message,
+                "text/html",
+            )
+
+            email.send(fail_silently=False)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Password reset link sent successfully.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # --------------------------------------------------
+        # PASSWORD RESET
+        # --------------------------------------------------
+        new_password = serializer.validated_data["new_password"]
+
+        AuthService.reset_password(
+            user=user,
+            new_password=new_password,
+        )
+
+        # If reset was done using email link,
+        # invalidate that token.
+        reset_token = getattr(
+            serializer,
+            "reset_token",
+            None,
+        )
+
+        if reset_token:
+            reset_token.is_used = True
+            reset_token.save(update_fields=["is_used"])
+
+        # Invalidate any other unused reset tokens.
+        PasswordResetToken.objects.filter(
+            user=user,
+            is_used=False,
+        ).update(is_used=True)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Password reset successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
     
-
-
-
     

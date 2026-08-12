@@ -14,6 +14,7 @@ class BusinessApplicationStatus(models.TextChoices):
     REJECTED = "REJECTED", _("Rejected")
 
 
+
 class BankVerificationStatus(models.TextChoices):
     PENDING = "PENDING", _("Pending")
     VERIFIED = "VERIFIED", _("Verified")

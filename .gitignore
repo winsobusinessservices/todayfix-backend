@@ -63,8 +63,12 @@ desktop.ini
 coverage.xml
 htmlcov/
 .pytest_cache/
-.tox/
 
+
+# Django migrations
+**/migrations/*.py
+!**/migrations/__init__.py
+=======
 
 # Build / Packaging
 
@@ -106,3 +110,4 @@ dist/
 Dockerfile
 docker-compose.yml
 docker-compose.test.yml
+

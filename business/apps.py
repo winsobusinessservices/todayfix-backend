@@ -9,4 +9,3 @@ class BusinessConfig(AppConfig):
 
     name = "business"
 
-    
