@@ -20,6 +20,9 @@ from .serializers import (
     UpdateProfileSerializer, 
     UnifiedPasswordResetSerializer,
     ForgotPasswordSerializer,
+    AddressSerializer,
+    VerifyEmailSerializer,
+    
 )
 
 from accounts.services import AuthService
@@ -33,12 +36,13 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 
 
-from accounts.models import PasswordResetToken, EmailTemplate
+from accounts.models import PasswordResetToken, EmailTemplate, Address
 
 from django.conf import settings
 
@@ -49,95 +53,156 @@ from django.core.mail import EmailMultiAlternatives
     auth=[],
     tags=["SignUp"],
     summary="Register User",
-    description="Registers a new user with role USER.",
+    description=(
+        "Creates a pending user registration and sends an "
+        "email verification link."
+    ),
     request=RegisterUserSerializer,
     responses={
         201: OpenApiResponse(
-            description="User registered successfully.",
+            description="Verification email sent successfully.",
             examples=[
                 OpenApiExample(
                     "Success",
                     value={
                         "success": True,
-                        "message": "User registered successfully.",
-                        "data": {
-                            "id": 1,
-                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "first_name": "John",
-                            "last_name": "  Doe",
-                            "email": "john@example.com",
-                            "phone": "+919876543210",
-                            "role": "USER",
-                        },
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-        400: OpenApiResponse(
-            description="Validation Error",
-            examples=[
-                OpenApiExample(
-                    "Passwords do not match",
-                    value={
-                        "confirm_password": [
-                            "Passwords do not match."
-                        ]
-                    },
-                    response_only=True,
-                ),
-                OpenApiExample(
-                    "Email already exists",
-                    value={
-                        "email": [
-                            "A user with this email already exists."
-                        ]
+                        "message": (
+                            "Verification email sent successfully. "
+                            "Please check your email to complete registration."
+                        ),
                     },
                     response_only=True,
                 ),
             ],
         ),
     },
-    examples=[
-        OpenApiExample(
-            "Register User",
-            value={
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "john@example.com",
-                "phone": "+919876543210",
-                "password": "Password@123",
-                "confirm_password": "Password@123",
-            },
-            request_only=True,
-        ),
-    ],
 )
-
 class RegisterUserAPIView(CreateAPIView):
-    """
-    Register a normal user.
-    """
 
     serializer_class = RegisterUserSerializer
 
     def create(self, request, *args, **kwargs):
 
         serializer = self.get_serializer(data=request.data)
-
         serializer.is_valid(raise_exception=True)
 
-        user = serializer.save()
-        refresh = RefreshToken.for_user(user)
-        access = refresh.access_token
+        pending_registration = serializer.save()
+
+        verification_link = (
+            f"{settings.FRONTEND_DOMAIN}/verify-email/"
+            f"?uuid={pending_registration.uuid}"
+            f"&token={pending_registration.token}"
+        )
+
+        template = EmailTemplate.objects.get(
+            name="REGISTRATION_VERIFICATION"
+        )
+
+        message = template.message.replace(
+            "{{ first_name }}",
+            pending_registration.first_name or "User",
+        ).replace(
+            "{{ verification_link }}",
+            verification_link,
+        ).replace(
+            "{{ expiry_hours }}",
+            "24",
+        )
+
+        html_message = render_to_string(
+            "emails/base_email.html",
+            {
+                "subject": template.subject,
+                "logo_url": settings.EMAIL_LOGO_URL,
+                "first_name": pending_registration.first_name or "User",
+                "message": message,
+                "otp": "",
+                "verification_link": verification_link,
+                "additional_message": "",
+            },
+        )
+
+        email = EmailMultiAlternatives(
+            subject=template.subject,
+            body=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[pending_registration.email],
+        )
+
+        email.attach_alternative(
+            html_message,
+            "text/html",
+        )
+
+        email.send(fail_silently=False)
 
         return Response(
             {
                 "success": True,
-                "message": "User registered successfully.",
+                "message": (
+                    "Verification email sent successfully. "
+                    "Please check your email to complete registration."
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+@extend_schema(
+    auth=[],
+    tags=["SignUp"],
+    summary="Verify Email",
+    description=(
+        "Verifies the user's email using the UUID and "
+        "verification token received by email."
+    ),
+    request=VerifyEmailSerializer,
+    responses={
+        200: OpenApiResponse(
+            description="Email verified successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Email verified successfully. "
+                            "Registration completed."
+                        ),
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class VerifyEmailAPIView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
+        serializer = VerifyEmailSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        uuid_value = serializer.validated_data["uuid"]
+        token = serializer.validated_data["token"]
+
+        user = AuthService.verify_email_registration(
+            uuid_value=uuid_value,
+            token=token,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Email verified successfully. "
+                    "Registration completed."
+                ),
                 "data": {
-                    "access": str(access),
-                    "refresh": str(refresh),
                     "id": user.id,
                     "uuid": str(user.uuid),
                     "first_name": user.first_name,
@@ -145,10 +210,9 @@ class RegisterUserAPIView(CreateAPIView):
                     "email": user.email,
                     "phone": user.phone,
                     "role": user.role,
- 
                 },
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
 
 @extend_schema(
@@ -432,7 +496,10 @@ class ProfileAPIView(APIView):
                     ),
                 "phone": request.user.phone,
                 "joinedate": request.user.created_at.strftime("%b %Y"),
-                "addresses": [],
+                "addresses": AddressSerializer(
+                    Address.objects.filter(user=request.user),
+                    many=True,
+                ).data,
                 },
             },
             status=status.HTTP_200_OK,
@@ -522,8 +589,178 @@ class UpdateProfileAPIView(APIView):
                     ),
                     "phone": request.user.phone,
                     "joinedate": request.user.created_at.strftime("%b %Y"),
-                    "addresses": [],
+                    "addresses": AddressSerializer(
+                        Address.objects.filter(user=request.user),
+                        many=True,
+                    ).data,
                 },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+@extend_schema(
+    tags=["Address"],
+    summary="List User Addresses",
+    description="Retrieve all addresses of the authenticated user.",
+    responses={200: AddressSerializer},
+)
+class ListUserAddressesAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        addresses = Address.objects.filter(user=request.user)
+
+        serializer = AddressSerializer(
+            addresses,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Addresses fetched successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Address"],
+    summary="Add User Address",
+    description="Add a new address for the authenticated user.",
+    request=AddressSerializer,
+    responses={201: AddressSerializer},
+)
+class CreateUserAddressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+
+        if Address.objects.filter(user=request.user).count() >= 5:
+            return Response(
+                {
+                    "success": False,
+                    "message": "You can have a maximum of 5 addresses.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = AddressSerializer(
+            data=request.data,
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(user=request.user)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Address added successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema(
+    tags=["Address"],
+    summary="Get User Address",
+    description="Retrieve a specific address of the authenticated user.",
+    responses={200: AddressSerializer},
+)
+class GetUserAddressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, address_id):
+
+        address = get_object_or_404(
+            Address,
+            id=address_id,
+            user=request.user,
+        )
+
+        serializer = AddressSerializer(address)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Address fetched successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Address"],
+    summary="Update User Address",
+    description="Update an existing address of the authenticated user.",
+    request=AddressSerializer,
+    responses={200: AddressSerializer},
+)
+class UpdateUserAddressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, address_id):
+
+        address = Address.objects.get(
+            id=address_id,
+            user=request.user,
+        )
+
+        serializer = AddressSerializer(
+            address,
+            data=request.data,
+            partial=True,
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Address updated successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Address"],
+    summary="Delete User Address",
+    description="Delete an existing address of the authenticated user.",
+    responses={200: OpenApiResponse},
+)
+class DeleteUserAddressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, address_id):
+
+        try:
+            address = Address.objects.get(
+                id=address_id,
+                user=request.user,
+            )
+        except Address.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Address not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        address.delete()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Address deleted successfully.",
             },
             status=status.HTTP_200_OK,
         )

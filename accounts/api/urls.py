@@ -8,6 +8,12 @@ from .views import (
     UpdateProfileAPIView,
     UnifiedPasswordResetView,
     ForgotPasswordView,
+    ListUserAddressesAPIView,
+    CreateUserAddressAPIView,
+    GetUserAddressAPIView,
+    UpdateUserAddressAPIView,
+    DeleteUserAddressAPIView,
+    VerifyEmailAPIView,
 )
 
 
@@ -43,7 +49,6 @@ urlpatterns = [
         name="update-profile",
     ),
 
-
     path(
         "reset-password/",
         UnifiedPasswordResetView.as_view(),
@@ -55,13 +60,47 @@ urlpatterns = [
         ForgotPasswordView.as_view(),
         name="forgot-password",
     ),
-    
+
+    # Address APIs
+
+    path(
+        "users/me/addresses/",
+        ListUserAddressesAPIView.as_view(),
+        name="list-user-addresses",
+    ),
+
+    path(
+        "users/me/addresses/add-address/",
+        CreateUserAddressAPIView.as_view(),
+        name="create-user-address",
+    ),
+
+    path(
+        "users/me/addresses/<int:address_id>/",
+        GetUserAddressAPIView.as_view(),
+        name="get-user-address",
+    ),
+
+    path(
+        "users/me/addresses/<int:address_id>/update-address/",
+        UpdateUserAddressAPIView.as_view(),
+        name="update-user-address",
+    ),
+
+    path(
+        "users/me/addresses/<int:address_id>/delete-address/",
+        DeleteUserAddressAPIView.as_view(),
+        name="delete-user-address",
+    ),
+    path(
+        "register/user/",
+        RegisterUserAPIView.as_view(),
+        name="register-user",
+    ),
+
+    path(
+        "verify-email/",
+        VerifyEmailAPIView.as_view(),
+        name="verify-email",
+    ),
 ]
-
-
-
-
-
-
-
-

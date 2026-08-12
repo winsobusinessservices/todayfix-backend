@@ -14,7 +14,11 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     last_logout = models.DateTimeField(null=True, blank=True)
 
-    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
 
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
@@ -29,6 +33,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         regex=r"^[6-9]\d{9}$",
         message="Phone number must be exactly 10 digits and start with 6, 7, 8, or 9.",
     )
+
     phone = models.CharField(
         max_length=16,
         unique=True,
@@ -43,9 +48,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         default=UserRole.USER,
     )
 
-    # These flags are retained for compatibility with the existing frontend.
-    # The authoritative business state is also represented by BusinessUpgradeRequest
-    # and BusinessProfile in the business app.
     has_business = models.BooleanField(default=False)
     business_verified = models.BooleanField(default=False)
 
@@ -58,6 +60,11 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     is_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -82,20 +89,55 @@ class Address(models.Model):
         on_delete=models.CASCADE,
         related_name="addresses",
     )
-    label = models.CharField(max_length=20)
-    street = models.CharField(max_length=255)
-    area = models.CharField(max_length=100)
+
+    address_line = models.CharField(max_length=255)
+    locality = models.CharField(max_length=100)
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
-    zip = models.CharField(max_length=10)
+    pincode = models.CharField(
+        max_length=6,
+        validators=[
+            RegexValidator(
+                regex=r"^\d{6}$",
+                message="Pincode must be exactly 6 digits.",
+            )   
+        ],
+    )
+
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+
+    class AddressType(models.TextChoices):
+        HOME = "HOME", "Home"
+        WORK = "WORK", "Work"
+        OTHER = "OTHER", "Other"
+
+    address_type = models.CharField(
+        max_length=10,
+        choices=AddressType.choices,
+        default=AddressType.OTHER,
+    )
+
     is_default = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.label} - {self.user.email}"
+        return f"{self.address_line} - {self.user.email}"
 
-#---------------------------------------------------Password reset token model---------------------------------------------------#
+
 class PasswordResetToken(models.Model):
     user = models.ForeignKey(
         CustomUser,
@@ -117,13 +159,50 @@ class PasswordResetToken(models.Model):
         return f"Password reset token - {self.user.email}"
 
 
-#---------------------------------------------------Email template model---------------------------------------------------#
 class EmailTemplate(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+    )
+
     subject = models.CharField(max_length=255)
+
     message = models.TextField()
 
     def __str__(self):
         return self.name
-    
 
+class PendingRegistration(models.Model):
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True)
+
+    email = models.EmailField(
+        unique=True,
+        db_index=True,
+    )
+
+    phone = models.CharField(
+        max_length=16,
+        blank=True,
+        null=True,
+    )
+
+    password = models.CharField(max_length=128)
+
+    token = models.CharField(
+        max_length=128,
+        unique=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    def __str__(self):
+        return f"Pending registration - {self.email}"
+    

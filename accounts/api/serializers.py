@@ -1,24 +1,20 @@
-from ast import pattern
-import email
-from urllib import request
-from xml.parsers.expat import errors
-from django.utils import timezone   
-from attr import attrs
-from django.contrib.auth import authenticate
-from flask import request
-from rest_framework import serializers
 import re
-
-from accounts.models import CustomUser, PasswordResetToken
-from accounts.choices import UserRole
-
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError
-
 import random
 from datetime import timedelta
 
 from django.utils import timezone
+
+from rest_framework import serializers
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+
+from accounts.models import (
+    CustomUser,
+    PasswordResetToken,
+    Address,
+)
+from accounts.choices import UserRole
+from django.contrib.auth import authenticate
 
 
 class RegisterUserSerializer(serializers.ModelSerializer):
@@ -99,6 +95,9 @@ class RegisterUserSerializer(serializers.ModelSerializer):
 
 
     def validate_phone(self, value):
+        if not value:
+            return value
+
         pattern = r'^[6-9]\d{9}$'
 
         if not re.match(pattern, value):
@@ -288,6 +287,102 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+# --------------------------------------------------------
+# Address serializer
+# --------------------------------------------------------
+
+class AddressSerializer(serializers.ModelSerializer):
+    user_uuid = serializers.UUIDField(
+        source="user.uuid",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Address
+        fields = (
+            "id",
+            "user_uuid",
+            "address_line",
+            "locality",
+            "city",
+            "state",
+            "pincode",
+            "latitude",
+            "longitude",
+            "address_type",
+            "is_default",
+            "created_at",
+            "updated_at",
+        )
+
+        read_only_fields = (
+            "id",
+            "user_uuid",
+            "created_at",
+            "updated_at",
+        )
+
+    def create(self, validated_data):
+        user = validated_data["user"]
+
+        if validated_data.get("is_default", False):
+            Address.objects.filter(
+                user=user,
+                is_default=True,
+            ).update(is_default=False)
+
+        return Address.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get("is_default", False):
+            Address.objects.filter(
+                user=instance.user,
+                is_default=True,
+            ).exclude(
+                id=instance.id
+            ).update(is_default=False)
+
+        return super().update(instance, validated_data)
+
+    def validate_address_line(self, value):
+        if value.strip().isdigit():
+            raise serializers.ValidationError(
+                "Address line cannot contain only numbers."
+            )
+        return value.strip()
+
+
+    def validate_locality(self, value):
+        if value.strip().isdigit():
+            raise serializers.ValidationError(
+                "Locality cannot contain only numbers."
+            )
+        return value.strip()
+
+
+    def validate_city(self, value):
+        if value.strip().isdigit():
+            raise serializers.ValidationError(
+                "City cannot contain only numbers."
+            )
+        return value.strip()
+
+
+    def validate_state(self, value):
+        if value.strip().isdigit():
+            raise serializers.ValidationError(
+                "State cannot contain only numbers."
+            )
+        return value.strip()
+
+
+    def validate_pincode(self, value):
+        if not re.fullmatch(r"\d{6}", value):
+            raise serializers.ValidationError(
+                "Pincode must be exactly 6 digits."
+            )
+        return value
 
 #--------------------------------------------------------Unified Password Reset serializer------------------------------------------------------------
 class UnifiedPasswordResetSerializer(serializers.Serializer):
@@ -484,6 +579,10 @@ class ForgotPasswordSerializer(serializers.Serializer):
         self.user = user
 
         return value
+
+class VerifyEmailSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField()
+    token = serializers.CharField()
     
 
         
