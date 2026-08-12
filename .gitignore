@@ -1,26 +1,113 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Python
+
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Virtual Environment
+
+
 venv/
+.venv/
+env/
+ENV/
+
+
+# Django
+
+
+*.log
+db.sqlite3
+db.sqlite3-journal
+*.sqlite
+
+staticfiles/
+
+# Environment / Secrets
+  
 
 .env
+.env.*
+!.env.example
 
-db.sqlite3
+
+# Media / User Uploaded Files
+
 
 media/
 
-__pycache__/
 
-*.pyc
+# IDE / Editors
 
-.idea/
 
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Files
+ 
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing / Coverage
+
 
 .coverage
-
+coverage.xml
+htmlcov/
 .pytest_cache/
 
-*.log
 
 # Django migrations
 **/migrations/*.py
 !**/migrations/__init__.py
+=======
+
+# Build / Packaging
+
+
+build/
+dist/
+*.egg-info/
+.eggs/
+
+
+# Type Checking
+
+
+.mypy_cache/
+.pyre/
+
+
+# Temporary Files
+
+
+*.tmp
+*.temp
+*.bak
+
+
+# Django Migrations
+
+
+**/migrations/*.py
+!**/migrations/__init__.py
+
+# Migration cache
+**/migrations/__pycache__/
+
+
+# Docker
+
+
+Dockerfile
+docker-compose.yml
+docker-compose.test.yml
+

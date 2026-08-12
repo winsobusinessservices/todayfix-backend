@@ -173,7 +173,7 @@ SPECTACULAR_SETTINGS = {
 
     "SCHEMA_PATH_PREFIX": r"/api/auth",
 
-    "DESCRIPTION": "TodayFix Backend APIs",
+    "DESCRIPTION": "ToDayFix.in Backend Service APIs",
 
     "VERSION": "1.0.0",
 

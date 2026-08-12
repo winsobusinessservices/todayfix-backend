@@ -8,8 +8,16 @@ class BusinessType(models.TextChoices):
     INVESTOR = "INVESTOR", _("Investor")
 
 
-class UpgradeRequestStatus(models.TextChoices):
+class BusinessApplicationStatus(models.TextChoices):
     PENDING = "PENDING", _("Pending")
     APPROVED = "APPROVED", _("Approved")
     REJECTED = "REJECTED", _("Rejected")
+
+
+
+class BankVerificationStatus(models.TextChoices):
+    PENDING = "PENDING", _("Pending")
+    VERIFIED = "VERIFIED", _("Verified")
+    REJECTED = "REJECTED", _("Rejected")
+
     
