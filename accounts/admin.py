@@ -1,7 +1,7 @@
 
 from django.contrib import admin
 
-from .models import CustomUser, PasswordResetToken
+from .models import CustomUser, PasswordResetToken, PendingRegistration
 from .models import EmailTemplate
 
 @admin.register(CustomUser)
@@ -16,6 +16,7 @@ class CustomUserAdmin(admin.ModelAdmin):
         "role",
         "is_active",
         "is_staff",
+        "verified_at",
     )
 
     search_fields = (
@@ -64,5 +65,33 @@ class EmailTemplateAdmin(admin.ModelAdmin):
     search_fields = (
         "name",
         "subject",
+    )
+
+@admin.register(PendingRegistration)
+class PendingRegistrationAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "id",
+        "uuid",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "created_at",
+        "expires_at",
+    )
+
+    search_fields = (
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "token",
+        "uuid",
+    )
+
+    list_filter = (
+        "created_at",
+        "expires_at",
     )
     

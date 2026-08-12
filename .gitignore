@@ -104,10 +104,5 @@ dist/
 **/migrations/__pycache__/
 
 
-# Docker
 
-
-Dockerfile
-docker-compose.yml
-docker-compose.test.yml
 
