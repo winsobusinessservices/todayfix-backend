@@ -12,7 +12,7 @@ from .choices import (
     BusinessApplicationStatus,
     BusinessType,
 )
-
+from categories.models import Category, SubCategory
 
 class BusinessApplication(TimeStampedModel):
     """
@@ -39,6 +39,15 @@ class BusinessApplication(TimeStampedModel):
         max_length=20,
         choices=BusinessType.choices,
         db_index=True,
+    )
+
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="business_applications",
+        db_index=True,
+        null=True,
+        blank=True,
     )
 
     status = models.CharField(
@@ -610,6 +619,12 @@ class BusinessProfile(TimeStampedModel):
         default=True,
     )
 
+    subcategories = models.ManyToManyField(
+        SubCategory,
+        related_name="business_profiles",
+        blank=True,
+    )
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -636,3 +651,4 @@ class BusinessProfile(TimeStampedModel):
             f"{self.name} "
             f"({self.business_type})"
         )
+

@@ -44,11 +44,14 @@ INSTALLED_APPS = [
     # third-party apps
     "rest_framework",
     "drf_spectacular",
+    "rest_framework_simplejwt.token_blacklist",
+    "django_filters",
 
     # local apps
     "accounts",
     "business",
-    "rest_framework_simplejwt.token_blacklist",
+    "categories",
+    
 ]
 
 MIDDLEWARE = [
