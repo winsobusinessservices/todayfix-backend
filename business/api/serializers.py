@@ -10,26 +10,6 @@ from ..models import (
 from categories.models import Category
 
 
-# class CategoryUUIDField(serializers.UUIDField):
-#     """
-#     Accepts a Category UUID and returns the active Category instance.
-#     """
-
-#     def to_internal_value(self, data):
-#         value = super().to_internal_value(data)
-
-#         try:
-#             return Category.objects.get(
-#                 uuid=value,
-#                 is_active=True,
-#             )
-#         except Category.DoesNotExist:
-#             raise serializers.ValidationError(
-#                 "Selected category does not exist or is inactive."
-#             )
-
-
-
 class BusinessApplicationSubmitSerializer(serializers.Serializer):
     """
     Complete one-request business application serializer.
@@ -495,16 +475,6 @@ class BusinessApplicationFullSerializer(
         read_only=True,
     )
 
-    # category_uuid = serializers.UUIDField(
-    #     source="category.uuid",
-    #     read_only=True,
-    # )
-
-    # category_name = serializers.CharField(
-    #     source="category.name",
-    #     read_only=True,
-    # )
-
     identity = serializers.SerializerMethodField()
 
     bank_account = serializers.SerializerMethodField()
@@ -516,8 +486,6 @@ class BusinessApplicationFullSerializer(
             "uuid",
             "user_email",
             "business_type",
-            # "category_uuid",
-            # "category_name",
             "status",
             "identity",
             "bank_account",
