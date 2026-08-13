@@ -1,3 +1,4 @@
+from unicodedata import category
 from django.db import transaction
 from django.utils import timezone
 
@@ -10,7 +11,7 @@ from .models import BusinessApplication, BusinessProfile
 class BusinessApplicationService:
 
     @staticmethod
-    def submit(user, business_type):
+    def submit(user, business_type, Category):
         # USER ROLE CHECK
         if getattr(user, "role", None) != UserRole.USER:
             raise ValueError(
@@ -32,6 +33,7 @@ class BusinessApplicationService:
         application = BusinessApplication(
             user=user,
             business_type=business_type,
+            category=category,
             status=BusinessApplicationStatus.PENDING,
         )
 
@@ -117,6 +119,7 @@ class BusinessApplicationService:
                 owner=user,
                 business_type=application.business_type,
                 defaults={
+                    "category": application.category,
                     "name": (
                         getattr(
                             user,
@@ -189,3 +192,5 @@ class BusinessApplicationService:
         )
 
         return application
+
+        

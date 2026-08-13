@@ -7,6 +7,7 @@ from ..models import (
     BusinessIdentity,
     BusinessProfile,
 )
+from categories.models import Category
 
 
 class BusinessApplicationSubmitSerializer(serializers.Serializer):
@@ -24,6 +25,35 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         choices=BusinessType.choices,
         required=True,
     )
+
+    category = serializers.ChoiceField(
+        choices=[],
+        required=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["category"].choices = [
+            (
+                category.name,
+                category.name,
+            )
+            for category in Category.objects.filter(
+                is_active=True
+            ).order_by("name")
+        ]
+
+    def validate_category(self, value):
+        try:
+            return Category.objects.get(
+                name=value,
+                is_active=True,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError(
+                "Selected category does not exist or is inactive."
+            )
 
     # =====================================================
     # PAN

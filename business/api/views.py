@@ -157,13 +157,10 @@ class BusinessApplicationCreateAPIView(APIView):
                 # APPLICATION
                 # -----------------------------------------
 
-                application = (
-                    BusinessApplicationService.submit(
-                        user=request.user,
-                        business_type=data[
-                            "business_type"
-                        ],
-                    )
+                application = BusinessApplicationService.submit(
+                    user=request.user,
+                    business_type=data["business_type"],
+                    category=data["category"],
                 )
 
                 # -----------------------------------------
