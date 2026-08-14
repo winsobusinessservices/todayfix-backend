@@ -1290,68 +1290,11 @@ class SignupSendOTPSerializer(
 # SIGNUP OTP VERIFY
 # =========================================================
 
-class SignupVerifyOTPSerializer(
-    serializers.Serializer
-):
-
-    phone = serializers.CharField(
-        max_length=15
-    )
-
+class SignupVerifyOTPSerializer(serializers.Serializer):
     otp = serializers.CharField(
-        min_length=6,
-        max_length=6
+        max_length=6,
+        min_length=6
     )
-
-    def validate_phone(
-        self,
-        value
-    ):
-
-        value = str(value).strip()
-
-        if value.startswith("+91"):
-
-            value = value[3:]
-
-        elif (
-            value.startswith("91")
-            and len(value) == 12
-        ):
-
-            value = value[2:]
-
-        if not re.fullmatch(
-            r"[6-9]\d{9}",
-            value
-        ):
-
-            raise serializers.ValidationError(
-                "Enter a valid 10-digit Indian mobile number."
-            )
-
-        return value
-
-    def validate_otp(
-        self,
-        value
-    ):
-
-        value = str(value).strip()
-
-        if not value.isdigit():
-
-            raise serializers.ValidationError(
-                "OTP must contain only numbers."
-            )
-
-        if len(value) != 6:
-
-            raise serializers.ValidationError(
-                "OTP must be exactly 6 digits."
-            )
-
-        return value
 
 
 # =========================================================
@@ -1539,4 +1482,5 @@ class SignupCompleteSerializer(
             )
 
         return attrs
+
 
