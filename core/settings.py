@@ -163,31 +163,54 @@ class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
             "scheme": "bearer",
             "bearerFormat": "JWT",
         }
-    def get_security_definition(self, auto_schema):
-        return {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT",
-        }
 
 SPECTACULAR_SETTINGS = {
-
     "TITLE": "TodayFix Service API",
-
-    "SCHEMA_PATH_PREFIX": r"/api/auth",
-
-    "DESCRIPTION": "ToDayFix.in Backend Service APIs",
-
+    "DESCRIPTION": "TodayFix.in Backend Service APIs",
     "VERSION": "1.0.0",
 
     "SERVE_INCLUDE_SCHEMA": False,
+
+    "TAGS": [
+        {
+            "name": "Authentication",
+            "description": "User registration, OTP, login, logout and password management."
+        },
+        {
+            "name": "Account",
+            "description": "Authenticated user profile management."
+        },
+        {
+            "name": "Address",
+            "description": "Authenticated user address management."
+        },
+        {
+            "name": "Business Application",
+            "description": "Submit and manage business upgrade applications."
+        },
+        {
+            "name": "Business Administration",
+            "description": "Admin review, approval and rejection of business applications."
+        },
+        {
+            "name": "Business Profile",
+            "description": "Business profile management."
+        },
+        {
+            "name": "Categories",
+            "description": "Service category management."
+        },
+        {
+            "name": "Subcategories",
+            "description": "Service subcategory management."
+        },
+    ],
 
     "SECURITY": [
         {
             "BearerAuth": []
         }
     ],
-
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

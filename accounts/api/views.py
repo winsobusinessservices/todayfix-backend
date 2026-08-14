@@ -1,15 +1,44 @@
-import email
+from accounts.api.serializers import SignupVerifyOTPSerializer
+from accounts.choices import UserRole
+from datetime import timedelta
+
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import status
 from rest_framework.generics import CreateAPIView
-from rest_framework.response import Response
+
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiResponse,
     OpenApiExample,
+)
+
+from rest_framework.permissions import (
+    IsAuthenticated,
+    AllowAny,
+)
+
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from django.shortcuts import get_object_or_404
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.core.mail import EmailMultiAlternatives
+
+from accounts.models import (
+    CustomUser,
+    PasswordResetToken,
+    EmailTemplate,
+    Address,
+    SignupOTPVerification,
+)
+
+from accounts.services import (
+    AuthService,
+    OTPService,
+    SignupOTPService,
 )
 
 from .serializers import (
@@ -17,37 +46,21 @@ from .serializers import (
     RegisterBusinessSerializer,
     LoginSerializer,
     LogoutSerializer,
-    UpdateProfileSerializer, 
+    UpdateProfileSerializer,
     UnifiedPasswordResetSerializer,
     ForgotPasswordSerializer,
     AddressSerializer,
     VerifyEmailSerializer,
-    
+    SendOTPSerializer,
+    VerifyOTPSerializer,
+    SignupSendOTPSerializer,
+    LoginSendOTPSerializer,
+    SignupCompleteSerializer,
 )
 
-from accounts.services import AuthService
-
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-
-from rest_framework_simplejwt.tokens import RefreshToken
-
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from django.shortcuts import get_object_or_404
-
-from drf_spectacular.utils import extend_schema
-from rest_framework.permissions import AllowAny
-
-
-from accounts.models import PasswordResetToken, EmailTemplate, Address
-
-from django.conf import settings
-
-from django.template.loader import render_to_string
-from django.core.mail import EmailMultiAlternatives
+# =========================================================
+# REGISTER USER
+# =========================================================
 
 @extend_schema(
     auth=[],
@@ -81,12 +94,48 @@ class RegisterUserAPIView(CreateAPIView):
 
     serializer_class = RegisterUserSerializer
 
-    def create(self, request, *args, **kwargs):
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs
+    ):
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = self.get_serializer(
+            data=request.data
+        )
 
-        pending_registration = serializer.save()
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        result = serializer.save()
+
+        # -----------------------------------------------------
+        # PHONE REGISTRATION
+        #
+        # Phone signup must use the dedicated OTP flow.
+        # -----------------------------------------------------
+
+        if isinstance(result, dict):
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "For phone registration, "
+                        "please use the signup OTP API."
+                    ),
+                    "data": result,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # -----------------------------------------------------
+        # EMAIL REGISTRATION
+        # -----------------------------------------------------
+
+        pending_registration = result
 
         verification_link = (
             f"{settings.FRONTEND_DOMAIN}/verify-email/"
@@ -114,7 +163,10 @@ class RegisterUserAPIView(CreateAPIView):
             {
                 "subject": template.subject,
                 "logo_url": settings.EMAIL_LOGO_URL,
-                "first_name": pending_registration.first_name or "User",
+                "first_name": (
+                    pending_registration.first_name
+                    or "User"
+                ),
                 "message": message,
                 "otp": "",
                 "verification_link": verification_link,
@@ -122,19 +174,21 @@ class RegisterUserAPIView(CreateAPIView):
             },
         )
 
-        email = EmailMultiAlternatives(
+        email_message = EmailMultiAlternatives(
             subject=template.subject,
             body=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[pending_registration.email],
         )
 
-        email.attach_alternative(
+        email_message.attach_alternative(
             html_message,
             "text/html",
         )
 
-        email.send(fail_silently=False)
+        email_message.send(
+            fail_silently=False
+        )
 
         return Response(
             {
@@ -146,7 +200,12 @@ class RegisterUserAPIView(CreateAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
-    
+
+
+# =========================================================
+# VERIFY EMAIL
+# =========================================================
+
 @extend_schema(
     auth=[],
     tags=["SignUp"],
@@ -156,24 +215,6 @@ class RegisterUserAPIView(CreateAPIView):
         "verification token received by email."
     ),
     request=VerifyEmailSerializer,
-    responses={
-        200: OpenApiResponse(
-            description="Email verified successfully.",
-            examples=[
-                OpenApiExample(
-                    "Success",
-                    value={
-                        "success": True,
-                        "message": (
-                            "Email verified successfully. "
-                            "Registration completed."
-                        ),
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-    },
 )
 class VerifyEmailAPIView(APIView):
 
@@ -185,10 +226,17 @@ class VerifyEmailAPIView(APIView):
             data=request.data
         )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
-        uuid_value = serializer.validated_data["uuid"]
-        token = serializer.validated_data["token"]
+        uuid_value = serializer.validated_data[
+            "uuid"
+        ]
+
+        token = serializer.validated_data[
+            "token"
+        ]
 
         user = AuthService.verify_email_registration(
             uuid_value=uuid_value,
@@ -215,31 +263,31 @@ class VerifyEmailAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+# =========================================================
+# REGISTER BUSINESS
+# =========================================================
+
 @extend_schema(
     auth=[],
-    tags=["Signup"],
+    tags=["Signup for Business"],
     summary="Register Business",
     description="Registers a new business account.",
     request=RegisterBusinessSerializer,
 )
 class RegisterBusinessAPIView(CreateAPIView):
-    """
-    Register a business account.
-    """
-
-
-class RegisterBusinessAPIView(CreateAPIView):
-    """
-    Register a business account.
-    """
 
     serializer_class = RegisterBusinessSerializer
 
     def create(self, request, *args, **kwargs):
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data
+        )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         user = serializer.save()
 
@@ -265,92 +313,44 @@ class RegisterBusinessAPIView(CreateAPIView):
             status=status.HTTP_201_CREATED,
         )
 
+# =========================================================
+# LOGIN
+# =========================================================
+
 @extend_schema(
     auth=[],
     tags=["Login"],
     summary="Login",
     description="Login using email and password.",
     request=LoginSerializer,
-    responses={
-        200: OpenApiResponse(
-            description="Login successful.",
-            examples=[
-                OpenApiExample(
-                    "Success",
-                    value={
-                        "success": True,
-                        "message": "Login successful.",
-                        "data": {
-                            "id": 1,
-                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "first_name": "Demo1",
-                            "last_name": "User",
-                            "email": "demo1@example.com",
-                            "phone": "+919876543210",
-                            "role": "USER",
-                        },
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-        400: OpenApiResponse(
-            description="Validation Error",
-            examples=[
-                OpenApiExample(
-                    "Invalid Credentials",
-                    value={
-                        "detail": [
-                            "Invalid email or password."
-                        ]
-                    },
-                    response_only=True,
-                ),
-                OpenApiExample(
-                    "Email Required",
-                    value={
-                        "email": [
-                            "This field is required."
-                        ]
-                    },
-                    response_only=True,
-                ),
-                OpenApiExample(
-                    "Password Required",
-                    value={
-                        "password": [
-                            "This field is required."
-                        ]
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-    },
-    examples=[
-        OpenApiExample(
-            "Login User",
-            value={
-                "email": "demo1@example.com",
-                "password": "Password@123"
-            },
-            request_only=True,
-        ),
-    ],
 )
-
 class LoginAPIView(CreateAPIView):
 
     serializer_class = LoginSerializer
 
-    def create(self, request, *args, **kwargs):
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs
+    ):
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data
+        )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
-        user = serializer.validated_data["user"]
-        refresh = RefreshToken.for_user(user)
+        user = serializer.validated_data[
+            "user"
+        ]
+
+        refresh = RefreshToken.for_user(
+            user
+        )
+
         access = refresh.access_token
 
         return Response(
@@ -367,64 +367,43 @@ class LoginAPIView(CreateAPIView):
                     "email": user.email,
                     "phone": user.phone,
                     "role": user.role,
-                    
                 },
             },
             status=status.HTTP_200_OK,
         )
 
+
+# =========================================================
+# LOGOUT
+# =========================================================
+
 @extend_schema(
     auth=[{"BearerAuth": []}],
-    tags=["Login"],
+    tags=["Logout"],
     summary="Logout",
-    description="Logout the user by blacklisting the refresh token.",
+    description=(
+        "Logout the user by blacklisting the refresh token."
+    ),
     request=LogoutSerializer,
-    responses={
-        200: OpenApiResponse(
-            description="Logout successful.",
-            examples=[
-                OpenApiExample(
-                    "Success",
-                    value={
-                        "success": True,
-                        "message": "Logout successful."
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-        400: OpenApiResponse(
-            description="Invalid refresh token.",
-            examples=[
-                OpenApiExample(
-                    "Invalid Token",
-                    value={
-                        "detail": "Invalid refresh token."
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-    },
-    examples=[
-        OpenApiExample(
-            "Logout",
-            value={
-                "refresh": "<refresh_token>"
-            },
-            request_only=True,
-        ),
-    ],
 )
 class LogoutAPIView(CreateAPIView):
 
     serializer_class = LogoutSerializer
 
-    def create(self, request, *args, **kwargs):
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs
+    ):
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data
+        )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         serializer.save()
 
@@ -436,42 +415,25 @@ class LogoutAPIView(CreateAPIView):
             status=status.HTTP_200_OK,
         )
 
+
+# =========================================================
+# PROFILE
+# =========================================================
+
 @extend_schema(
     auth=[{"BearerAuth": []}],
     tags=["Accounts"],
     summary="Profile",
-    description="Retrieve the profile details of the authenticated user.",
-    responses={
-        200: OpenApiResponse(
-            description="Profile fetched successfully.",
-            examples=[
-                OpenApiExample(
-                    "Success",
-                    value={
-                        "success": True,
-                        "message": "Profile fetched successfully.",
-                        "data": {
-                            "id": 1,
-                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
-                            "first_name": "Demo1",
-                            "last_name": "User",
-                            "email": "demo1@example.com",
-                            "phone": "+919876543210",
-                            "role": "USER",
-                        },
-                    },
-                    response_only=True,
-                ),
-            ],
-        ),
-        401: OpenApiResponse(
-            description="Authentication credentials were not provided.",
-        ),
-    },
+    description=(
+        "Retrieve the profile details "
+        "of the authenticated user."
+    ),
 )
 class ProfileAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated
+    ]
 
     def get(self, request):
 
@@ -480,117 +442,37 @@ class ProfileAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Profile fetched successfully.",
-                "data": {
-                    "id": request.user.id,
-                    "firstName": request.user.first_name,
-                    "lastName": request.user.last_name,
-                    "role": request.user.role,
-                    "hasBusiness": request.user.role == "BUSINESS",
-                    "businessVerified": request.user.business_verified,
-                    "email": request.user.email,
-                    "profileImage": (
-                        request.user.profile_picture.url
-                        if request.user.profile_picture
-                        else ""
-                    ),
-                "phone": request.user.phone,
-                "joinedate": request.user.created_at.strftime("%b %Y"),
-                "addresses": AddressSerializer(
-                    Address.objects.filter(user=request.user),
-                    many=True,
-                ).data,
-                },
-            },
-            status=status.HTTP_200_OK,
-        )
-    
-@extend_schema(
-    tags=["Accounts"],
-    summary="Update Profile",
-    description="Update the authenticated user's profile.",
-    request=UpdateProfileSerializer,
-    responses={
-        200: OpenApiResponse(
-            description="Profile updated successfully.",
-            examples=[
-                OpenApiExample(
-                    "Success",
-                    value={
-                        "success": True,
-                        "message": "Profile updated successfully.",
-                        "data": {
-                            "firstName": "",
-                            "lastName": "",
-                            "profileImage": "",
-                            "phone": "",
-                            "addresses": [],
-                        },
-                    },
-                    response_only=True,
+                "message": (
+                    "Profile fetched successfully."
                 ),
-            ],
-        ),
-        400: OpenApiResponse(
-            description="Validation Error",
-        ),
-        401: OpenApiResponse(
-            description="Authentication credentials were not provided.",
-        ),
-    },
-    examples=[
-        OpenApiExample(
-            "Update Profile",
-            value={
-                "firstName": "",
-                "lastName": "",
-                "profileImage": "",
-                "phone": "",
-                "addresses": [],
-            },
-            request_only=True,
-        ),
-    ],
-)
-class UpdateProfileAPIView(APIView):
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-
-        serializer = UpdateProfileSerializer(
-            request.user,
-            data=request.data,
-            
-        )
-
-        serializer.is_valid(raise_exception=True)
-
-        serializer.save()
-        request.user.refresh_from_db()
-        print(request.user.first_name)
-
-        return Response(
-            {
-                "success": True,
-                "message": "Profile updated successfully.",
                 "data": {
-                    "id": request.user.id,
-                    "firstName": request.user.first_name,
-                    "lastName": request.user.last_name,
-                    "role": request.user.role,
-                    "hasBusiness": request.user.role == "BUSINESS",
-                    "businessVerified": request.user.business_verified,
-                    "email": request.user.email,
+                    "id": user.id,
+                    "uuid": str(user.uuid),
+                    "firstName": user.first_name,
+                    "lastName": user.last_name,
+                    "role": user.role,
+                    "hasBusiness": (
+                        user.role == UserRole.BUSINESS
+                    ),
+                    "businessVerified": (
+                        user.business_verified
+                    ),
+                    "email": user.email,
                     "profileImage": (
-                        request.user.profile_picture.url
-                        if request.user.profile_picture
+                        user.profile_picture.url
+                        if user.profile_picture
                         else ""
                     ),
-                    "phone": request.user.phone,
-                    "joinedate": request.user.created_at.strftime("%b %Y"),
+                    "phone": user.phone,
+                    "joinedate": (
+                        user.created_at.strftime(
+                            "%b %Y"
+                        )
+                    ),
                     "addresses": AddressSerializer(
-                        Address.objects.filter(user=request.user),
+                        Address.objects.filter(
+                            user=user
+                        ),
                         many=True,
                     ).data,
                 },
@@ -598,17 +480,116 @@ class UpdateProfileAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+# =========================================================
+# UPDATE PROFILE
+# =========================================================
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Update Profile",
+    description=(
+        "Update the authenticated user's profile."
+    ),
+    request=UpdateProfileSerializer,
+)
+class UpdateProfileAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = UpdateProfileSerializer(
+            request.user,
+            data=request.data,
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        serializer.save()
+
+        request.user.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Profile updated successfully."
+                ),
+                "data": {
+                    "id": request.user.id,
+                    "uuid": str(request.user.uuid),
+                    "firstName": (
+                        request.user.first_name
+                    ),
+                    "lastName": (
+                        request.user.last_name
+                    ),
+                    "role": request.user.role,
+                    "hasBusiness": (
+                        request.user.role
+                        == UserRole.BUSINESS
+                    ),
+                    "businessVerified": (
+                        request.user.business_verified
+                    ),
+                    "email": request.user.email,
+                    "profileImage": (
+                        request.user.profile_picture.url
+                        if request.user.profile_picture
+                        else ""
+                    ),
+                    "phone": request.user.phone,
+                    "joinedate": (
+                        request.user.created_at.strftime(
+                            "%b %Y"
+                        )
+                    ),
+                    "addresses": AddressSerializer(
+                        Address.objects.filter(
+                            user=request.user
+                        ),
+                        many=True,
+                    ).data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# LIST USER ADDRESSES
+# =========================================================
+
 @extend_schema(
     tags=["Address"],
     summary="List User Addresses",
-    description="Retrieve all addresses of the authenticated user.",
-    responses={200: AddressSerializer},
+    description=(
+        "Retrieve all addresses of "
+        "the authenticated user."
+    ),
 )
 class ListUserAddressesAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        addresses = Address.objects.filter(user=request.user)
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request
+    ):
+
+        addresses = Address.objects.filter(
+            user=request.user
+        )
 
         serializer = AddressSerializer(
             addresses,
@@ -618,30 +599,50 @@ class ListUserAddressesAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Addresses fetched successfully.",
+                "message": (
+                    "Addresses fetched successfully."
+                ),
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )
 
 
+# =========================================================
+# CREATE ADDRESS
+# =========================================================
+
 @extend_schema(
     tags=["Address"],
     summary="Add User Address",
-    description="Add a new address for the authenticated user.",
+    description=(
+        "Add a new address for "
+        "the authenticated user."
+    ),
     request=AddressSerializer,
-    responses={201: AddressSerializer},
 )
 class CreateUserAddressAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-        if Address.objects.filter(user=request.user).count() >= 5:
+    def post(
+        self,
+        request
+    ):
+
+        if Address.objects.filter(
+            user=request.user
+        ).count() >= 5:
+
             return Response(
                 {
                     "success": False,
-                    "message": "You can have a maximum of 5 addresses.",
+                    "message": (
+                        "You can have a maximum "
+                        "of 5 addresses."
+                    ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -650,30 +651,52 @@ class CreateUserAddressAPIView(APIView):
             data=request.data,
         )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
-        serializer.save(user=request.user)
+        serializer.save(
+            user=request.user
+        )
 
         return Response(
             {
                 "success": True,
-                "message": "Address added successfully.",
+                "message": (
+                    "Address added successfully."
+                ),
                 "data": serializer.data,
             },
             status=status.HTTP_201_CREATED,
         )
 
 
+# =========================================================
+# GET ADDRESS
+# =========================================================
+
 @extend_schema(
     tags=["Address"],
     summary="Get User Address",
-    description="Retrieve a specific address of the authenticated user.",
-    responses={200: AddressSerializer},
+    description=(
+        "Retrieve a specific address "
+        "of the authenticated user."
+    ),
+    responses={
+        200: AddressSerializer
+    },
 )
 class GetUserAddressAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, address_id):
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+        address_id
+    ):
 
         address = get_object_or_404(
             Address,
@@ -681,31 +704,49 @@ class GetUserAddressAPIView(APIView):
             user=request.user,
         )
 
-        serializer = AddressSerializer(address)
+        serializer = AddressSerializer(
+            address
+        )
 
         return Response(
             {
                 "success": True,
-                "message": "Address fetched successfully.",
+                "message": (
+                    "Address fetched successfully."
+                ),
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )
 
 
+# =========================================================
+# UPDATE ADDRESS
+# =========================================================
+
 @extend_schema(
     tags=["Address"],
     summary="Update User Address",
-    description="Update an existing address of the authenticated user.",
+    description=(
+        "Update an existing address "
+        "of the authenticated user."
+    ),
     request=AddressSerializer,
-    responses={200: AddressSerializer},
 )
 class UpdateUserAddressAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request, address_id):
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-        address = Address.objects.get(
+    def post(
+        self,
+        request,
+        address_id
+    ):
+
+        address = get_object_or_404(
+            Address,
             id=address_id,
             user=request.user,
         )
@@ -716,37 +757,57 @@ class UpdateUserAddressAPIView(APIView):
             partial=True,
         )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         serializer.save()
 
         return Response(
             {
                 "success": True,
-                "message": "Address updated successfully.",
+                "message": (
+                    "Address updated successfully."
+                ),
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )
 
 
+# =========================================================
+# DELETE ADDRESS
+# =========================================================
+
 @extend_schema(
     tags=["Address"],
     summary="Delete User Address",
-    description="Delete an existing address of the authenticated user.",
-    responses={200: OpenApiResponse},
+    description=(
+        "Delete an existing address "
+        "of the authenticated user."
+    ),
 )
 class DeleteUserAddressAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def delete(self, request, address_id):
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def delete(
+        self,
+        request,
+        address_id
+    ):
 
         try:
+
             address = Address.objects.get(
                 id=address_id,
                 user=request.user,
             )
+
         except Address.DoesNotExist:
+
             return Response(
                 {
                     "success": False,
@@ -760,44 +821,55 @@ class DeleteUserAddressAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Address deleted successfully.",
+                "message": (
+                    "Address deleted successfully."
+                ),
             },
             status=status.HTTP_200_OK,
         )
 
-#------Forgot Password View------#
+
+# =========================================================
+# FORGOT PASSWORD
+# =========================================================
+
 class ForgotPasswordView(APIView):
-    permission_classes = [AllowAny]
+
+    permission_classes = [
+        AllowAny
+    ]
 
     @extend_schema(
         auth=[],
         tags=["Login"],
         summary="Send password reset link",
         request=ForgotPasswordSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="Password reset link sent successfully."
-            ),
-            400: OpenApiResponse(
-                description="Invalid email."
-            ),
-        },
     )
-    def post(self, request):
+    def post(
+        self,
+        request
+    ):
+
         serializer = ForgotPasswordSerializer(
             data=request.data
         )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         user = serializer.user
 
-        reset_token = AuthService.create_password_reset_token(
-            user
+        reset_token = (
+            AuthService.create_password_reset_token(
+                user
+            )
         )
 
-        reset_link = AuthService.get_password_reset_link(
-            reset_token
+        reset_link = (
+            AuthService.get_password_reset_link(
+                reset_token
+            )
         )
 
         template = EmailTemplate.objects.get(
@@ -817,63 +889,85 @@ class ForgotPasswordView(APIView):
             },
         )
 
-        email = EmailMultiAlternatives(
+        email_message = EmailMultiAlternatives(
             subject=template.subject,
             body=template.message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )
 
-        email.attach_alternative(
+        email_message.attach_alternative(
             html_message,
             "text/html",
         )
 
-        email.send(fail_silently=False)
+        email_message.send(
+            fail_silently=False
+        )
 
         return Response(
             {
                 "success": True,
-                "message": "Password reset link sent successfully.",
+                "message": (
+                    "Password reset link sent successfully."
+                ),
             },
             status=status.HTTP_200_OK,
         )
 
-#---- Unified Password Reset View ---#
+
+# =========================================================
+# UNIFIED PASSWORD RESET
+# =========================================================
+
 class UnifiedPasswordResetView(APIView):
-    permission_classes = [AllowAny]
+
+    permission_classes = [
+        AllowAny
+    ]
 
     @extend_schema(
         tags=["Login"],
         request=UnifiedPasswordResetSerializer,
-        responses={
-            200: OpenApiResponse(
-                description="Password reset operation completed successfully."
-            ),
-            400: OpenApiResponse(
-                description="Invalid password reset request."
-            ),
-        },
     )
-    def post(self, request):
+    def post(
+        self,
+        request
+    ):
+
         serializer = UnifiedPasswordResetSerializer(
             data=request.data,
-            context={"request": request},
+            context={
+                "request": request
+            },
         )
 
-        serializer.is_valid(raise_exception=True)
+        serializer.is_valid(
+            raise_exception=True
+        )
 
         user = serializer.user
 
         # --------------------------------------------------
-        # LOGGED-OUT USER: Send reset link
+        # LOGGED-OUT USER
+        # SEND RESET LINK
         # --------------------------------------------------
+
         if (
             not request.user.is_authenticated
-            and serializer.validated_data.get("email")
-            and not serializer.validated_data.get("token")
+            and serializer.validated_data.get(
+                "email"
+            )
+            and not serializer.validated_data.get(
+                "token"
+            )
         ):
-            reset_token = AuthService.create_password_reset_token(user)
+
+            reset_token = (
+                AuthService.create_password_reset_token(
+                    user
+                )
+            )
 
             reset_link = (
                 f"{settings.FRONTEND_DOMAIN}/reset-password/"
@@ -903,7 +997,9 @@ class UnifiedPasswordResetView(APIView):
                 {
                     "subject": subject,
                     "logo_url": "",
-                    "first_name": user.first_name or "User",
+                    "first_name": (
+                        user.first_name or "User"
+                    ),
                     "message": message,
                     "otp": "",
                     "reset_link": reset_link,
@@ -911,24 +1007,28 @@ class UnifiedPasswordResetView(APIView):
                 },
             )
 
-            email = EmailMultiAlternatives(
+            email_message = EmailMultiAlternatives(
                 subject=subject,
                 body=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[user.email],
             )
 
-            email.attach_alternative(
+            email_message.attach_alternative(
                 html_message,
                 "text/html",
             )
 
-            email.send(fail_silently=False)
+            email_message.send(
+                fail_silently=False
+            )
 
             return Response(
                 {
                     "success": True,
-                    "message": "Password reset link sent successfully.",
+                    "message": (
+                        "Password reset link sent successfully."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -936,15 +1036,18 @@ class UnifiedPasswordResetView(APIView):
         # --------------------------------------------------
         # PASSWORD RESET
         # --------------------------------------------------
-        new_password = serializer.validated_data["new_password"]
+
+        new_password = (
+            serializer.validated_data[
+                "new_password"
+            ]
+        )
 
         AuthService.reset_password(
             user=user,
             new_password=new_password,
         )
 
-        # If reset was done using email link,
-        # invalidate that token.
         reset_token = getattr(
             serializer,
             "reset_token",
@@ -952,21 +1055,580 @@ class UnifiedPasswordResetView(APIView):
         )
 
         if reset_token:
-            reset_token.is_used = True
-            reset_token.save(update_fields=["is_used"])
 
-        # Invalidate any other unused reset tokens.
+            reset_token.is_used = True
+
+            reset_token.save(
+                update_fields=[
+                    "is_used"
+                ]
+            )
+
         PasswordResetToken.objects.filter(
             user=user,
             is_used=False,
-        ).update(is_used=True)
+        ).update(
+            is_used=True
+        )
 
         return Response(
             {
                 "success": True,
-                "message": "Password reset successfully.",
+                "message": (
+                    "Password reset successfully."
+                ),
             },
             status=status.HTTP_200_OK,
         )
-    
-    
+
+
+# =========================================================
+# SIGNUP OTP - SEND
+# =========================================================
+
+@extend_schema(
+    request=SignupSendOTPSerializer,
+    tags=["SignUp"],
+    summary="Send Signup OTP",
+    description=(
+        "Send an OTP to a phone number "
+        "for new user registration."
+    ),
+)
+class SendOTPAPIView(APIView):
+
+    authentication_classes = []
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = SignupSendOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
+
+        # -----------------------------------------------------
+        # RESEND COOLDOWN
+        # -----------------------------------------------------
+
+        if not SignupOTPService.can_send_otp(
+            phone
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Please wait 60 seconds "
+                        "before requesting another OTP."
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp = SignupOTPService.create_otp(
+            phone=phone
+        )
+
+        # -----------------------------------------------------
+        # DEVELOPMENT MODE
+        # Replace with SMS provider later.
+        # -----------------------------------------------------
+
+        print(
+            "\n"
+            "====================================\n"
+            "TODAYFIX SIGNUP OTP\n"
+            f"Phone: {phone}\n"
+            f"OTP: {otp}\n"
+            "Expires: 5 minutes\n"
+            "====================================\n"
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "OTP sent successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# SIGNUP OTP - VERIFY
+# =========================================================
+
+@extend_schema(
+    request=SignupVerifyOTPSerializer,
+    tags=["SignUp"],
+    summary="Verify Signup OTP",
+    description=(
+        "Verify the OTP sent to a new user's "
+        "phone number."
+    ),
+)
+class SignupVerifyOTPAPIView(APIView):
+
+    authentication_classes = []
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = SignupVerifyOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
+
+        otp = serializer.validated_data[
+            "otp"
+        ]
+
+        success, message = (
+            SignupOTPService.verify_otp(
+                phone=phone,
+                otp=otp,
+            )
+        )
+
+        if not success:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": message,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Signup OTP verified successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# LOGIN OTP - SEND
+# =========================================================
+
+@extend_schema(
+    request=LoginSendOTPSerializer,
+    tags=["Login"],
+    summary="Send Login OTP",
+)
+class LoginSendOTPAPIView(APIView):
+
+    authentication_classes = []
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = LoginSendOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        user = serializer.user
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
+
+        if not OTPService.can_send_otp(
+            phone
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Please wait 60 seconds "
+                        "before requesting another OTP."
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp = OTPService.create_otp(
+            user=user,
+            phone=phone,
+        )
+
+        # -----------------------------------------------------
+        # DEVELOPMENT MODE
+        # -----------------------------------------------------
+
+        print(
+            "\n"
+            "====================================\n"
+            "TODAYFIX LOGIN OTP\n"
+            f"Phone: {phone}\n"
+            f"OTP: {otp}\n"
+            "Expires: 5 minutes\n"
+            "====================================\n"
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "OTP sent successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# LOGIN OTP - VERIFY
+# =========================================================
+
+@extend_schema(
+    request=VerifyOTPSerializer,
+    tags=["Login"],
+    summary="Verify Login OTP",
+)
+class LoginVerifyOTPAPIView(APIView):
+
+    authentication_classes = []
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = VerifyOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
+
+        otp = serializer.validated_data[
+            "otp"
+        ]
+
+        try:
+
+            user = CustomUser.objects.get(
+                phone=phone
+            )
+
+        except CustomUser.DoesNotExist:
+
+            try:
+
+                user = CustomUser.objects.get(
+                    phone=f"+91{phone}"
+                )
+
+            except CustomUser.DoesNotExist:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "User not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        success, message = (
+            OTPService.verify_otp(
+                user=user,
+                phone=phone,
+                otp=otp,
+            )
+        )
+
+        if not success:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": message,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        refresh = RefreshToken.for_user(
+            user
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "OTP verified. "
+                    "Login successful."
+                ),
+                "data": {
+                    "access": str(
+                        refresh.access_token
+                    ),
+                    "refresh": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "uuid": str(user.uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role,
+                    },
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# SIGNUP COMPLETE
+# =========================================================
+
+@extend_schema(
+    request=SignupCompleteSerializer,
+    tags=["SignUp"],
+    summary="Complete Phone Signup",
+    description=(
+        "Completes user registration after "
+        "successful phone OTP verification."
+    ),
+)
+class SignupCompleteAPIView(APIView):
+
+    authentication_classes = []
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = SignupCompleteSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
+
+        # -----------------------------------------------------
+        # FIND SUCCESSFULLY VERIFIED OTP
+        # -----------------------------------------------------
+
+        signup_otp = (
+            SignupOTPVerification.objects
+            .filter(
+                phone=phone,
+                is_used=True,
+                verified_at__isnull=False,
+            )
+            .order_by("-verified_at")
+            .first()
+        )
+
+        if not signup_otp:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Phone number has not been "
+                        "verified. Please verify OTP first."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # VERIFICATION VALID FOR 10 MINUTES
+        # -----------------------------------------------------
+
+        if signup_otp.verified_at < (
+            timezone.now()
+            - timedelta(minutes=10)
+        ):
+
+            signup_otp.delete()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Phone verification has expired. "
+                        "Please request a new OTP."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # DOUBLE-CHECK PHONE
+        # -----------------------------------------------------
+
+        if CustomUser.objects.filter(
+            phone=phone
+        ).exists():
+
+            signup_otp.delete()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This phone number "
+                        "is already registered."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # CHECK EMAIL AGAIN
+        # -----------------------------------------------------
+
+        email = serializer.validated_data.get(
+            "email",
+            ""
+        )
+
+        if email:
+
+            if CustomUser.objects.filter(
+                email__iexact=email
+            ).exists():
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Email already exists."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # -----------------------------------------------------
+        # CREATE USER
+        # -----------------------------------------------------
+
+        user = CustomUser.objects.create_user(
+            phone=phone,
+            first_name=serializer.validated_data[
+                "first_name"
+            ],
+            last_name=serializer.validated_data.get(
+                "last_name",
+                "",
+            ),
+            email=email,
+            password=serializer.validated_data[
+                "password"
+            ],
+            role=UserRole.USER,
+            has_business=False,
+            business_verified=False,
+            is_verified=True,
+            verified_at=timezone.now(),
+            is_active=True,
+        )
+
+        # -----------------------------------------------------
+        # DELETE VERIFIED OTP
+        #
+        # Prevent the same verification from being reused.
+        # -----------------------------------------------------
+
+        signup_otp.delete()
+
+        # -----------------------------------------------------
+        # JWT
+        # -----------------------------------------------------
+
+        refresh = RefreshToken.for_user(
+            user
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Signup successful."
+                ),
+                "data": {
+                    "access": str(
+                        refresh.access_token
+                    ),
+                    "refresh": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "uuid": str(user.uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role,
+                    },
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+

@@ -11,22 +11,27 @@ class CustomUserManager(BaseUserManager):
 
     def create_user(
         self,
-        email,
-        first_name,
-        last_name,
-        phone,
+        email=None,
+        first_name="",
+        last_name="",
+        phone=None,
         password=None,
         role=UserRole.USER,
         **extra_fields,
     ):
         """
         Create and return a regular user.
-        """
-        if not email:
-            raise ValueError("Email is required")
 
-    # Convert email to lowercase before saving
-        email = self.normalize_email(email).lower()
+        At least one of email or phone must be provided.
+        """
+
+        if not email and not phone:
+            raise ValueError(
+                "Either email or phone is required."
+            )
+
+        if email:
+            email = self.normalize_email(email).lower()
 
         user = self.model(
             email=email,
@@ -38,6 +43,7 @@ class CustomUserManager(BaseUserManager):
         )
 
         user.set_password(password)
+
         user.save(using=self._db)
 
         return user
