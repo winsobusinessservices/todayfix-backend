@@ -2,28 +2,81 @@ from django.urls import path
 
 from .views import (
     RegisterUserAPIView,
+    VerifyEmailAPIView,
+    RegisterBusinessAPIView,
     LoginAPIView,
     LogoutAPIView,
     ProfileAPIView,
     UpdateProfileAPIView,
-    UnifiedPasswordResetView,
-    ForgotPasswordView,
+
     ListUserAddressesAPIView,
     CreateUserAddressAPIView,
     GetUserAddressAPIView,
     UpdateUserAddressAPIView,
     DeleteUserAddressAPIView,
-    VerifyEmailAPIView,
+
+    ForgotPasswordView,
+    UnifiedPasswordResetView,
+
+    SendOTPAPIView,
+    SignupVerifyOTPAPIView,
+
+    LoginSendOTPAPIView,
+    LoginVerifyOTPAPIView,
+
+    SignupCompleteAPIView,
 )
 
 
 urlpatterns = [
 
+    # =====================================================
+    # SIGNUP
+    # =====================================================
+
     path(
-        "register/user/",
+        "signup/register/",
         RegisterUserAPIView.as_view(),
         name="register-user",
     ),
+
+    path(
+        "signup/verify-email/",
+        VerifyEmailAPIView.as_view(),
+        name="verify-email",
+    ),
+
+    path(
+        "signup/send-otp/",
+        SendOTPAPIView.as_view(),
+        name="signup-send-otp",
+    ),
+
+    path(
+        "signup/verify-otp/",
+        SignupVerifyOTPAPIView.as_view(),
+        name="signup-verify-otp",
+    ),
+
+    path(
+        "signup/complete/",
+        SignupCompleteAPIView.as_view(),
+        name="signup-complete",
+    ),
+
+    # =====================================================
+    # BUSINESS
+    # =====================================================
+
+    path(
+        "business/register/",
+        RegisterBusinessAPIView.as_view(),
+        name="register-business",
+    ),
+
+    # =====================================================
+    # LOGIN
+    # =====================================================
 
     path(
         "login/",
@@ -32,10 +85,30 @@ urlpatterns = [
     ),
 
     path(
+        "login/send-otp/",
+        LoginSendOTPAPIView.as_view(),
+        name="login-send-otp",
+    ),
+
+    path(
+        "login/verify-otp/",
+        LoginVerifyOTPAPIView.as_view(),
+        name="login-verify-otp",
+    ),
+
+    # =====================================================
+    # LOGOUT
+    # =====================================================
+
+    path(
         "logout/",
         LogoutAPIView.as_view(),
         name="logout",
     ),
+
+    # =====================================================
+    # PROFILE
+    # =====================================================
 
     path(
         "profile/",
@@ -46,61 +119,58 @@ urlpatterns = [
     path(
         "profile/update/",
         UpdateProfileAPIView.as_view(),
-        name="update-profile",
+        name="profile-update",
+    ),
+
+    # =====================================================
+    # ADDRESS
+    # =====================================================
+
+    path(
+        "addresses/",
+        ListUserAddressesAPIView.as_view(),
+        name="address-list",
     ),
 
     path(
-        "reset-password/",
-        UnifiedPasswordResetView.as_view(),
-        name="unified-reset-password",
+        "addresses/create/",
+        CreateUserAddressAPIView.as_view(),
+        name="address-create",
     ),
 
     path(
-        "forgot-password/",
+        "addresses/<int:address_id>/",
+        GetUserAddressAPIView.as_view(),
+        name="address-detail",
+    ),
+
+    path(
+        "addresses/<int:address_id>/update/",
+        UpdateUserAddressAPIView.as_view(),
+        name="address-update",
+    ),
+
+    path(
+        "addresses/<int:address_id>/delete/",
+        DeleteUserAddressAPIView.as_view(),
+        name="address-delete",
+    ),
+
+    # =====================================================
+    # PASSWORD
+    # =====================================================
+
+    path(
+        "password/forgot/",
         ForgotPasswordView.as_view(),
         name="forgot-password",
     ),
 
-    # Address APIs
-
     path(
-        "users/me/addresses/",
-        ListUserAddressesAPIView.as_view(),
-        name="list-user-addresses",
-    ),
-
-    path(
-        "users/me/addresses/add-address/",
-        CreateUserAddressAPIView.as_view(),
-        name="create-user-address",
-    ),
-
-    path(
-        "users/me/addresses/<int:address_id>/",
-        GetUserAddressAPIView.as_view(),
-        name="get-user-address",
-    ),
-
-    path(
-        "users/me/addresses/<int:address_id>/update-address/",
-        UpdateUserAddressAPIView.as_view(),
-        name="update-user-address",
-    ),
-
-    path(
-        "users/me/addresses/<int:address_id>/delete-address/",
-        DeleteUserAddressAPIView.as_view(),
-        name="delete-user-address",
-    ),
-    path(
-        "register/user/",
-        RegisterUserAPIView.as_view(),
-        name="register-user",
-    ),
-
-    path(
-        "verify-email/",
-        VerifyEmailAPIView.as_view(),
-        name="verify-email",
+        "password/reset/",
+        UnifiedPasswordResetView.as_view(),
+        name="password-reset",
     ),
 ]
+
+

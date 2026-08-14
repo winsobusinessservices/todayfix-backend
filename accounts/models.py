@@ -27,6 +27,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         unique=True,
         db_index=True,
         verbose_name="Email Address",
+        null=True,
+        blank=True,
     )
 
     phone_validator = RegexValidator(
@@ -35,11 +37,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     )
 
     phone = models.CharField(
-        max_length=16,
+        max_length=10,
         unique=True,
         db_index=True,
         verbose_name="Phone Number",
         validators=[phone_validator],
+        null=True,
+        blank=True,
     )
 
     role = models.CharField(
@@ -72,7 +76,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["first_name", "last_name", "phone"]
+    REQUIRED_FIELDS = ["first_name", "last_name"]
 
     class Meta:
         verbose_name = "User"
@@ -81,6 +85,78 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
+
+class OTPVerification(models.Model):
+    """
+    Stores OTP verification attempts for signup/login.
+
+    The plaintext OTP is NEVER stored.
+    """
+
+    PURPOSE_SIGNUP = "SIGNUP"
+    PURPOSE_LOGIN = "LOGIN"
+
+    PURPOSE_CHOICES = (
+        (PURPOSE_SIGNUP, "Signup"),
+        (PURPOSE_LOGIN, "Login"),
+    )
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="otp_verifications",
+    )
+
+    phone = models.CharField(
+        max_length=10,
+        db_index=True,
+    )
+
+    otp_hash = models.CharField(
+        max_length=128,
+    )
+
+    purpose = models.CharField(
+        max_length=20,
+        choices=PURPOSE_CHOICES,
+        default=PURPOSE_SIGNUP,
+        db_index=True,
+    )
+
+    expires_at = models.DateTimeField()
+
+    attempts = models.PositiveIntegerField(
+        default=0
+    )
+
+    is_used = models.BooleanField(
+        default=False
+    )
+
+    is_verified = models.BooleanField(
+        default=False
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=[
+                    "phone",
+                    "purpose",
+                    "created_at",
+                ]
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.phone} - {self.purpose}"
 
 
 class Address(models.Model):
@@ -206,3 +282,37 @@ class PendingRegistration(models.Model):
     def __str__(self):
         return f"Pending registration - {self.email}"
     
+
+class SignupOTPVerification(models.Model):
+    phone = models.CharField(
+        max_length=15
+    )
+
+    otp_hash = models.CharField(
+        max_length=255
+    )
+
+    expires_at = models.DateTimeField()
+
+    attempts = models.PositiveIntegerField(
+        default=0
+    )
+
+    is_used = models.BooleanField(
+        default=False
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    def __str__(self):
+        return self.phone
+
+
+        
