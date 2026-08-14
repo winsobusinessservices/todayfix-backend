@@ -32,7 +32,6 @@ from accounts.models import (
     PasswordResetToken,
     EmailTemplate,
     Address,
-    SignupOTPVerification,
 )
 
 from accounts.services import (
@@ -53,9 +52,7 @@ from .serializers import (
     VerifyEmailSerializer,
     SendOTPSerializer,
     VerifyOTPSerializer,
-    SignupSendOTPSerializer,
     LoginSendOTPSerializer,
-    SignupCompleteSerializer,
 )
 
 # =========================================================
@@ -111,31 +108,55 @@ class RegisterUserAPIView(CreateAPIView):
 
         result = serializer.save()
 
-        # -----------------------------------------------------
-        # PHONE REGISTRATION
-        #
-        # Phone signup must use the dedicated OTP flow.
-        # -----------------------------------------------------
-
-        if isinstance(result, dict):
-
-            return Response(
-                {
-                    "success": True,
-                    "message": (
-                        "For phone registration, "
-                        "please use the signup OTP API."
-                    ),
-                    "data": result,
-                },
-                status=status.HTTP_200_OK,
-            )
+        
 
         # -----------------------------------------------------
         # EMAIL REGISTRATION
         # -----------------------------------------------------
 
         pending_registration = result
+
+        # -----------------------------------------------------
+        # PHONE REGISTRATION
+        # -----------------------------------------------------
+
+        if pending_registration.verification_method == "phone":
+
+            phone = pending_registration.phone
+
+            if not SignupOTPService.can_send_otp(phone):
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Please wait 60 seconds "
+                            "before requesting another OTP."
+                        ),
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+
+            otp = SignupOTPService.create_otp(
+                phone=phone
+            )
+
+            print(
+                "\n"
+                "====================================\n"
+                "TODAYFIX SIGNUP OTP\n"
+                f"Phone: {phone}\n"
+                f"OTP: {otp}\n"
+                "Expires: 5 minutes\n"
+                "====================================\n"
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "OTP sent successfully.",
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         verification_link = (
             f"{settings.FRONTEND_DOMAIN}/verify-email/"
@@ -155,7 +176,7 @@ class RegisterUserAPIView(CreateAPIView):
             verification_link,
         ).replace(
             "{{ expiry_hours }}",
-            "24",
+            "15 minutes",
         )
 
         html_message = render_to_string(
@@ -243,21 +264,25 @@ class VerifyEmailAPIView(APIView):
             token=token,
         )
 
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
+
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Email verified successfully. "
-                    "Registration completed."
-                ),
+                "message": "Signup successful.",
                 "data": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "role": user.role,
+                    "access": str(access),
+                    "refresh": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "uuid": str(user.uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role,
+                    },
                 },
             },
             status=status.HTTP_200_OK,
@@ -1082,91 +1107,10 @@ class UnifiedPasswordResetView(APIView):
         )
 
 
-# =========================================================
-# SIGNUP OTP - SEND
-# =========================================================
 
-@extend_schema(
-    request=SignupSendOTPSerializer,
-    tags=["SignUp"],
-    summary="Send Signup OTP",
-    description=(
-        "Send an OTP to a phone number "
-        "for new user registration."
-    ),
-)
-class SendOTPAPIView(APIView):
 
-    authentication_classes = []
 
-    permission_classes = [
-        AllowAny
-    ]
 
-    def post(
-        self,
-        request
-    ):
-
-        serializer = SignupSendOTPSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        phone = serializer.validated_data[
-            "phone"
-        ]
-
-        # -----------------------------------------------------
-        # RESEND COOLDOWN
-        # -----------------------------------------------------
-
-        if not SignupOTPService.can_send_otp(
-            phone
-        ):
-
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Please wait 60 seconds "
-                        "before requesting another OTP."
-                    ),
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        otp = SignupOTPService.create_otp(
-            phone=phone
-        )
-
-        # -----------------------------------------------------
-        # DEVELOPMENT MODE
-        # Replace with SMS provider later.
-        # -----------------------------------------------------
-
-        print(
-            "\n"
-            "====================================\n"
-            "TODAYFIX SIGNUP OTP\n"
-            f"Phone: {phone}\n"
-            f"OTP: {otp}\n"
-            "Expires: 5 minutes\n"
-            "====================================\n"
-        )
-
-        return Response(
-            {
-                "success": True,
-                "message": (
-                    "OTP sent successfully."
-                ),
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 # =========================================================
@@ -1203,41 +1147,39 @@ class SignupVerifyOTPAPIView(APIView):
             raise_exception=True
         )
 
-        phone = serializer.validated_data[
-            "phone"
-        ]
+        
 
         otp = serializer.validated_data[
             "otp"
         ]
 
-        success, message = (
-            SignupOTPService.verify_otp(
-                phone=phone,
-                otp=otp,
-            )
+        user = AuthService.verify_phone_registration(
+            otp=otp,
         )
 
-        if not success:
-
-            return Response(
-                {
-                    "success": False,
-                    "message": message,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Signup OTP verified successfully."
-                ),
+                "message": "Signup successful.",
+                "data": {
+                    "access": str(access),
+                    "refresh": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "uuid": str(user.uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role,
+                    },
+                },
             },
             status=status.HTTP_200_OK,
         )
-
 
 # =========================================================
 # LOGIN OTP - SEND
@@ -1435,200 +1377,9 @@ class LoginVerifyOTPAPIView(APIView):
 # SIGNUP COMPLETE
 # =========================================================
 
-@extend_schema(
-    request=SignupCompleteSerializer,
-    tags=["SignUp"],
-    summary="Complete Phone Signup",
-    description=(
-        "Completes user registration after "
-        "successful phone OTP verification."
-    ),
-)
-class SignupCompleteAPIView(APIView):
 
-    authentication_classes = []
 
-    permission_classes = [
-        AllowAny
-    ]
 
-    def post(
-        self,
-        request
-    ):
-
-        serializer = SignupCompleteSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        phone = serializer.validated_data[
-            "phone"
-        ]
-
-        # -----------------------------------------------------
-        # FIND SUCCESSFULLY VERIFIED OTP
-        # -----------------------------------------------------
-
-        signup_otp = (
-            SignupOTPVerification.objects
-            .filter(
-                phone=phone,
-                is_used=True,
-                verified_at__isnull=False,
-            )
-            .order_by("-verified_at")
-            .first()
-        )
-
-        if not signup_otp:
-
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Phone number has not been "
-                        "verified. Please verify OTP first."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # -----------------------------------------------------
-        # VERIFICATION VALID FOR 10 MINUTES
-        # -----------------------------------------------------
-
-        if signup_otp.verified_at < (
-            timezone.now()
-            - timedelta(minutes=10)
-        ):
-
-            signup_otp.delete()
-
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Phone verification has expired. "
-                        "Please request a new OTP."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # -----------------------------------------------------
-        # DOUBLE-CHECK PHONE
-        # -----------------------------------------------------
-
-        if CustomUser.objects.filter(
-            phone=phone
-        ).exists():
-
-            signup_otp.delete()
-
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "This phone number "
-                        "is already registered."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # -----------------------------------------------------
-        # CHECK EMAIL AGAIN
-        # -----------------------------------------------------
-
-        email = serializer.validated_data.get(
-            "email",
-            ""
-        )
-
-        if email:
-
-            if CustomUser.objects.filter(
-                email__iexact=email
-            ).exists():
-
-                return Response(
-                    {
-                        "success": False,
-                        "message": (
-                            "Email already exists."
-                        ),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        # -----------------------------------------------------
-        # CREATE USER
-        # -----------------------------------------------------
-
-        user = CustomUser.objects.create_user(
-            phone=phone,
-            first_name=serializer.validated_data[
-                "first_name"
-            ],
-            last_name=serializer.validated_data.get(
-                "last_name",
-                "",
-            ),
-            email=email,
-            password=serializer.validated_data[
-                "password"
-            ],
-            role=UserRole.USER,
-            has_business=False,
-            business_verified=False,
-            is_verified=True,
-            verified_at=timezone.now(),
-            is_active=True,
-        )
-
-        # -----------------------------------------------------
-        # DELETE VERIFIED OTP
-        #
-        # Prevent the same verification from being reused.
-        # -----------------------------------------------------
-
-        signup_otp.delete()
-
-        # -----------------------------------------------------
-        # JWT
-        # -----------------------------------------------------
-
-        refresh = RefreshToken.for_user(
-            user
-        )
-
-        return Response(
-            {
-                "success": True,
-                "message": (
-                    "Signup successful."
-                ),
-                "data": {
-                    "access": str(
-                        refresh.access_token
-                    ),
-                    "refresh": str(refresh),
-                    "user": {
-                        "id": user.id,
-                        "uuid": str(user.uuid),
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "email": user.email,
-                        "phone": user.phone,
-                        "role": user.role,
-                    },
-                },
-            },
-            status=status.HTTP_201_CREATED,
-        )
+    
 
 

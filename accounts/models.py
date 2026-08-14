@@ -8,7 +8,7 @@ from django.core.validators import RegexValidator
 from .managers import CustomUserManager
 from .choices import UserRole
 
-
+#====================================Custom user model=========================
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     """Core account used by every person on TodayFix."""
 
@@ -86,6 +86,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
 
+
+#====================================OTP Verification model================================
 class OTPVerification(models.Model):
     """
     Stores OTP verification attempts for signup/login.
@@ -158,7 +160,7 @@ class OTPVerification(models.Model):
     def __str__(self):
         return f"{self.phone} - {self.purpose}"
 
-
+#===========================================Addresss model============================
 class Address(models.Model):
     user = models.ForeignKey(
         CustomUser,
@@ -214,6 +216,7 @@ class Address(models.Model):
         return f"{self.address_line} - {self.user.email}"
 
 
+#====================================Password reset token model======================
 class PasswordResetToken(models.Model):
     user = models.ForeignKey(
         CustomUser,
@@ -235,6 +238,7 @@ class PasswordResetToken(models.Model):
         return f"Password reset token - {self.user.email}"
 
 
+#========================Email template model===============================
 class EmailTemplate(models.Model):
     name = models.CharField(
         max_length=100,
@@ -248,6 +252,7 @@ class EmailTemplate(models.Model):
     def __str__(self):
         return self.name
 
+#=====================Pending Registeration model============================
 class PendingRegistration(models.Model):
     uuid = models.UUIDField(
         default=uuid.uuid4,
@@ -255,12 +260,20 @@ class PendingRegistration(models.Model):
         unique=True,
     )
 
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100, blank=True)
+    first_name = models.CharField(
+        max_length=100
+    )
+
+    last_name = models.CharField(
+        max_length=100,
+        blank=True,
+    )
 
     email = models.EmailField(
         unique=True,
         db_index=True,
+        blank=True,
+        null=True,
     )
 
     phone = models.CharField(
@@ -269,20 +282,37 @@ class PendingRegistration(models.Model):
         null=True,
     )
 
-    password = models.CharField(max_length=128)
+    password = models.CharField(
+        max_length=128
+    )
 
     token = models.CharField(
         max_length=128,
         unique=True,
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    verification_method = models.CharField(
+        max_length=10,
+        choices=[
+            ("email", "Email"),
+            ("phone", "Phone"),
+        ],
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
     expires_at = models.DateTimeField()
 
     def __str__(self):
-        return f"Pending registration - {self.email}"
+        return (
+            f"Pending registration - "
+            f"{self.email or self.phone}"
+        )
     
 
+#==================================Signup OTP model====================
 class SignupOTPVerification(models.Model):
     phone = models.CharField(
         max_length=15
@@ -313,6 +343,7 @@ class SignupOTPVerification(models.Model):
 
     def __str__(self):
         return self.phone
+    
 
 
         

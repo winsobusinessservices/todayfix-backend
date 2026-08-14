@@ -33,13 +33,24 @@ class AuthService:
 
         email = (
             validated_data.get("email")
-            or ""
-        ).lower().strip()
+            or None
+        )
+
+        if email:
+            email = email.lower().strip()
 
         phone = (
             validated_data.get("phone")
-            or ""
-        ).strip()
+            or None
+        )
+
+        if phone:
+            phone = phone.strip()
+
+        if phone:
+            verification_method = "phone"
+        else:
+            verification_method = "email"
 
         # =====================================================
         # EMAIL OR PHONE IS REQUIRED
@@ -140,9 +151,11 @@ class AuthService:
 
             pending_registration.token = token
 
+            pending_registration.verification_method = verification_method
+
             pending_registration.expires_at = (
                 timezone.now()
-                + timedelta(hours=24)
+                + timedelta(minutes=15)
             )
 
             pending_registration.save()
@@ -162,14 +175,18 @@ class AuthService:
                     phone=phone,
                     password=password_hash,
                     token=token,
+                    verification_method=verification_method,
                     expires_at=(
                         timezone.now()
-                        + timedelta(hours=24)
+                        + timedelta(minutes=15)
                     ),
                 )
             )
 
         return pending_registration
+
+
+    
 
     # =========================================================
     # EMAIL VERIFICATION
@@ -189,6 +206,11 @@ class AuthService:
                     token=token,
                 )
             )
+
+            if pending_registration.verification_method != "email":
+                raise ValidationError({
+                    "detail": "This registration must be verified using phone OTP."
+                })
 
         except PendingRegistration.DoesNotExist:
 
@@ -257,7 +279,7 @@ class AuthService:
             first_name=pending_registration.first_name,
             last_name=pending_registration.last_name,
             email=pending_registration.email,
-            phone=pending_registration.phone,
+            phone=pending_registration.phone or None,
             role=UserRole.USER,
             has_business=False,
             business_verified=False,
@@ -281,11 +303,24 @@ class AuthService:
 
     @staticmethod
     def verify_phone_registration(
-        phone,
         otp,
     ):
 
-        phone = SignupOTPService.normalize_phone(phone)
+        otp_record = (
+            SignupOTPVerification.objects
+            .filter(
+                is_used=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not otp_record:
+            raise ValidationError({
+                "otp": "OTP not found. Please request a new OTP."
+            })
+
+        phone = otp_record.phone
 
         success, message = SignupOTPService.verify_otp(
             phone=phone,
@@ -301,11 +336,13 @@ class AuthService:
 
             pending_registration = (
                 PendingRegistration.objects
-                .filter(phone=phone)
+                .filter(
+                    phone=phone,
+                    verification_method="phone",
+                )
                 .order_by("-created_at")
                 .first()
             )
-
         except PendingRegistration.DoesNotExist:
 
             pending_registration = None
@@ -865,6 +902,8 @@ class SignupOTPService:
         return True, (
             "OTP verified successfully."
         )
+    
+    
 
 
         

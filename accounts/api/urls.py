@@ -18,13 +18,13 @@ from .views import (
     ForgotPasswordView,
     UnifiedPasswordResetView,
 
-    SendOTPAPIView,
+    
     SignupVerifyOTPAPIView,
 
     LoginSendOTPAPIView,
     LoginVerifyOTPAPIView,
 
-    SignupCompleteAPIView,
+    
 )
 
 
@@ -46,11 +46,6 @@ urlpatterns = [
         name="verify-email",
     ),
 
-    path(
-        "signup/send-otp/",
-        SendOTPAPIView.as_view(),
-        name="signup-send-otp",
-    ),
 
     path(
         "signup/verify-otp/",
@@ -58,11 +53,7 @@ urlpatterns = [
         name="signup-verify-otp",
     ),
 
-    path(
-        "signup/complete/",
-        SignupCompleteAPIView.as_view(),
-        name="signup-complete",
-    ),
+    
 
     # =====================================================
     # BUSINESS
@@ -172,5 +163,6 @@ urlpatterns = [
         name="password-reset",
     ),
 ]
+
 
 
