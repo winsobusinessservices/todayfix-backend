@@ -127,6 +127,19 @@ class OTPVerification(models.Model):
         db_index=True,
     )
 
+    provider = models.CharField(
+        max_length=30,
+        default="FAST2SMS",
+        db_index=True,
+    )
+
+    provider_request_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Request/OTP ID returned by the SMS provider.",
+    )
+
     expires_at = models.DateTimeField()
 
     attempts = models.PositiveIntegerField(
@@ -143,6 +156,11 @@ class OTPVerification(models.Model):
 
     created_at = models.DateTimeField(
         auto_now_add=True
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
     )
 
     class Meta:
@@ -162,6 +180,12 @@ class OTPVerification(models.Model):
 
 #===========================================Addresss model============================
 class Address(models.Model):
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
