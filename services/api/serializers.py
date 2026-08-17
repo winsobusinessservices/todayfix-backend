@@ -95,6 +95,13 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             "is_active",
         )
 
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Price must be greater than 0."
+            )
+        return value
+
     def validate_category_uuid(self, value):
         try:
             category = Category.objects.get(
@@ -190,6 +197,13 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             "subcategory_uuid",
             "is_active",
         )
+
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Price must be greater than 0."
+            )
+        return value
 
     def validate_category_uuid(self, value):
         try:

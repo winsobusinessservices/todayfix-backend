@@ -6,6 +6,8 @@ from services.models import Service
 
 from bookings.models import Booking
 
+from django.utils import timezone
+
 
 # =============================================================
 # NESTED SERIALIZERS (READ ONLY)
@@ -83,5 +85,27 @@ class BookingCreateSerializer(serializers.Serializer):
     scheduled_date = serializers.DateField()
     scheduled_time = serializers.TimeField()
     notes = serializers.CharField(
-        required=False, allow_blank=True, default=""
+        required=False,
+        allow_blank=True,
+        default="",
     )
+
+    def validate(self, attrs):
+        scheduled_date = attrs["scheduled_date"]
+        scheduled_time = attrs["scheduled_time"]
+
+        scheduled_datetime = timezone.make_aware(
+            timezone.datetime.combine(
+                scheduled_date,
+                scheduled_time,
+            )
+        )
+
+        if scheduled_datetime <= timezone.now():
+            raise serializers.ValidationError({
+                "scheduled_date": (
+                    "Booking date and time must be in the future."
+                )
+            })
+
+        return attrs
