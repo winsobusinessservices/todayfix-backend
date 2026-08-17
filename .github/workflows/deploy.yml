@@ -1,6 +1,7 @@
 name: Deploy Django App
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
