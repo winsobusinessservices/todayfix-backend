@@ -3,7 +3,6 @@ from django.urls import path
 from .views import (
     RegisterUserAPIView,
     VerifyEmailAPIView,
-    RegisterBusinessAPIView,
     LoginAPIView,
     LogoutAPIView,
     ProfileAPIView,
@@ -54,16 +53,6 @@ urlpatterns = [
     ),
 
     
-
-    # =====================================================
-    # BUSINESS
-    # =====================================================
-
-    path(
-        "business/register/",
-        RegisterBusinessAPIView.as_view(),
-        name="register-business",
-    ),
 
     # =====================================================
     # LOGIN

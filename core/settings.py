@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-41v-@w7pp&(89w(q3ui%qdvi@-w!7lxnu6&f6yl#p77)*-r907
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["#"]
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -51,6 +51,8 @@ INSTALLED_APPS = [
     "accounts",
     "business",
     "categories",
+    "services",
+    "bookings",
     
 ]
 
@@ -204,6 +206,14 @@ SPECTACULAR_SETTINGS = {
             "name": "Subcategories",
             "description": "Service subcategory management."
         },
+        {
+            "name": "Services",
+            "description": "Service catalog and business service management."
+        },
+        {
+            "name": "Bookings",
+            "description": "User and business booking management."
+        },
     ],
 
     "SECURITY": [
@@ -256,3 +266,7 @@ DEFAULT_FROM_EMAIL = os.getenv(
 EMAIL_LOGO_URL = (
     f"{FRONTEND_DOMAIN}/static/images/todayfix-logo.png"
 )
+
+# Fast2SMS configuration
+FAST2SMS_API_KEY = os.getenv("FAST2SMS_API_KEY", "")
+

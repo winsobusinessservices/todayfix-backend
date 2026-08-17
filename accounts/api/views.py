@@ -1,3 +1,5 @@
+import logging
+
 from accounts.api.serializers import SignupVerifyOTPSerializer
 from accounts.choices import UserRole
 from datetime import timedelta
@@ -42,7 +44,6 @@ from accounts.services import (
 
 from .serializers import (
     RegisterUserSerializer,
-    RegisterBusinessSerializer,
     LoginSerializer,
     LogoutSerializer,
     UpdateProfileSerializer,
@@ -54,6 +55,8 @@ from .serializers import (
     VerifyOTPSerializer,
     LoginSendOTPSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 # =========================================================
 # REGISTER USER
@@ -140,14 +143,9 @@ class RegisterUserAPIView(CreateAPIView):
                 phone=phone
             )
 
-            print(
-                "\n"
-                "====================================\n"
-                "TODAYFIX SIGNUP OTP\n"
-                f"Phone: {phone}\n"
-                f"OTP: {otp}\n"
-                "Expires: 5 minutes\n"
-                "====================================\n"
+            logger.debug(
+                "SIGNUP OTP | Phone: %s | OTP: %s | Expires: 5 min",
+                phone, otp,
             )
 
             return Response(
@@ -289,54 +287,7 @@ class VerifyEmailAPIView(APIView):
         )
 
 
-# =========================================================
-# REGISTER BUSINESS
-# =========================================================
 
-@extend_schema(
-    auth=[],
-    tags=["Signup for Business"],
-    summary="Register Business",
-    description="Registers a new business account.",
-    request=RegisterBusinessSerializer,
-)
-class RegisterBusinessAPIView(CreateAPIView):
-
-    serializer_class = RegisterBusinessSerializer
-
-    def create(self, request, *args, **kwargs):
-
-        serializer = self.get_serializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        user = serializer.save()
-
-        refresh = RefreshToken.for_user(user)
-        access = refresh.access_token
-
-        return Response(
-            {
-                "success": True,
-                "message": "Business account created successfully.",
-                "data": {
-                    "refresh": str(refresh),
-                    "access": str(access),
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "role": user.role,
-                },
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 # =========================================================
 # LOGIN
@@ -1241,14 +1192,9 @@ class LoginSendOTPAPIView(APIView):
         # DEVELOPMENT MODE
         # -----------------------------------------------------
 
-        print(
-            "\n"
-            "====================================\n"
-            "TODAYFIX LOGIN OTP\n"
-            f"Phone: {phone}\n"
-            f"OTP: {otp}\n"
-            "Expires: 5 minutes\n"
-            "====================================\n"
+        logger.debug(
+            "LOGIN OTP | Phone: %s | OTP: %s | Expires: 5 min",
+            phone, otp,
         )
 
         return Response(
