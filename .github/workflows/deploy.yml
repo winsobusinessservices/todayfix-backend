@@ -1,44 +1,24 @@
-name: Deploy Django App
+name: Test VPS Connection
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to Server
+  test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to Server
+      - name: Test SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          port: ${{ secrets.SERVER_PORT }}
+          port: 22
           script: |
-            set -e
-      
-            cd /var/www/todayfix
-      
-            echo "Pulling latest code..."
-            git pull origin main
-      
-            echo "Building containers..."
-            docker compose up -d --build
-      
-            echo "Running migrations..."
-            docker compose exec -T web python manage.py migrate
-      
-            echo "Collecting static files..."
-            docker compose exec -T web python manage.py collectstatic --noinput
-      
-            echo "Cleaning unused images..."
-            docker image prune -f
-      
-            echo "Deployment successful!"
-      
-            docker compose ps
+            echo "SSH connection successful!"
+            whoami
+            hostname
+            docker --version
+            docker compose version
