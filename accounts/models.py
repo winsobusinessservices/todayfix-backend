@@ -14,7 +14,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     last_logout = models.DateTimeField(null=True, blank=True)
 
-    uuid = models.UUIDField(
+    user_uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
         unique=True,
@@ -103,6 +103,12 @@ class OTPVerification(models.Model):
         (PURPOSE_LOGIN, "Login"),
     )
 
+    otp_verification_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
@@ -180,7 +186,7 @@ class OTPVerification(models.Model):
 
 #===========================================Addresss model============================
 class Address(models.Model):
-    uuid = models.UUIDField(
+    add_uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
         unique=True,
@@ -206,19 +212,13 @@ class Address(models.Model):
         ],
     )
 
-    latitude = models.DecimalField(
-        max_digits=9,
-        decimal_places=6,
-        null=True,
-        blank=True,
+    location = models.CharField(
+        max_length=255,
     )
 
-    longitude = models.DecimalField(
-        max_digits=9,
-        decimal_places=6,
-        null=True,
-        blank=True,
-    )
+    
+
+    
 
     class AddressType(models.TextChoices):
         HOME = "HOME", "Home"
@@ -242,6 +242,12 @@ class Address(models.Model):
 
 #====================================Password reset token model======================
 class PasswordResetToken(models.Model):
+
+    password_reset_token_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
@@ -264,6 +270,13 @@ class PasswordResetToken(models.Model):
 
 #========================Email template model===============================
 class EmailTemplate(models.Model):
+
+    email_template_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
     name = models.CharField(
         max_length=100,
         unique=True,
@@ -278,7 +291,7 @@ class EmailTemplate(models.Model):
 
 #=====================Pending Registeration model============================
 class PendingRegistration(models.Model):
-    uuid = models.UUIDField(
+    pending_registration_uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
         unique=True,
@@ -338,6 +351,13 @@ class PendingRegistration(models.Model):
 
 #==================================Signup OTP model====================
 class SignupOTPVerification(models.Model):
+
+    signup_otp_verification_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
     phone = models.CharField(
         max_length=15
     )

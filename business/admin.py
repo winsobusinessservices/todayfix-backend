@@ -14,7 +14,7 @@ class BusinessApplicationAdmin(
 ):
 
     list_display = (
-        "uuid",
+        "business_application_uuid",
         "user",
         "business_type",
         "status",
@@ -28,12 +28,12 @@ class BusinessApplicationAdmin(
     )
 
     search_fields = (
-        "uuid",
+        "business_application_uuid",
         "user__email",
     )
 
     readonly_fields = (
-        "uuid",
+        "business_application_uuid",
         "created_at",
         "reviewed_at",
     )
@@ -45,7 +45,7 @@ class BusinessIdentityAdmin(
 ):
 
     list_display = (
-        "uuid",
+        "business_identity_uuid",
         "application",
         "pan_number",
         "aadhaar_number",
@@ -54,7 +54,7 @@ class BusinessIdentityAdmin(
     )
 
     search_fields = (
-        "uuid",
+        "business_identity_uuid",
         "application__uuid",
         "pan_number",
         "aadhaar_number",
@@ -68,7 +68,7 @@ class BusinessBankAccountAdmin(
 ):
 
     list_display = (
-        "uuid",
+        "business_bank_account_uuid",
         "application",
         "bank_name",
         "account_holder_name",
@@ -81,7 +81,7 @@ class BusinessBankAccountAdmin(
     )
 
     search_fields = (
-        "uuid",
+        "business_bank_account_uuid",
         "application__uuid",
         "bank_name",
         "account_holder_name",
@@ -91,9 +91,11 @@ class BusinessBankAccountAdmin(
 @admin.register(BusinessProfile)
 class BusinessProfileAdmin(admin.ModelAdmin):
     list_display = (
-        "uuid",
+        "business_profile_uuid",
         "owner",
         "business_type",
+        "category",
+        "location",
         "name",
         "is_active",
         "created_at",
@@ -105,9 +107,10 @@ class BusinessProfileAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "uuid",
+        "business_profile_uuid",
         "owner__email",
         "name",
+        "category",
     )
 
 

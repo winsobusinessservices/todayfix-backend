@@ -14,7 +14,7 @@ class ServiceBusinessSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BusinessProfile
-        fields = ("uuid", "name")
+        fields = ("business_profile_uuid", "name")
 
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
@@ -22,7 +22,7 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ("uuid", "name")
+        fields = ("cat_uuid", "name")
 
 
 class ServiceSubCategorySerializer(serializers.ModelSerializer):
@@ -30,7 +30,7 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SubCategory
-        fields = ("uuid", "name")
+        fields = ("subCat_uuid", "name")
 
 
 # =============================================================
@@ -47,7 +47,7 @@ class ServiceReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
         fields = (
-            "uuid",
+            "service_uuid",
             "name",
             "description",
             "price",
@@ -73,11 +73,11 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
     by the client.
     """
 
-    category_uuid = serializers.UUIDField(
+    cat_uuid = serializers.UUIDField(
         write_only=True,
     )
 
-    subcategory_uuid = serializers.UUIDField(
+    subCat_uuid = serializers.UUIDField(
         write_only=True,
         required=False,
         allow_null=True,
@@ -90,8 +90,8 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "duration",
-            "category_uuid",
-            "subcategory_uuid",
+            "cat_uuid",
+            "subCat_uuid",
             "is_active",
         )
 
@@ -102,10 +102,10 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate_category_uuid(self, value):
+    def validate_cat_uuid(self, value):
         try:
             category = Category.objects.get(
-                uuid=value,
+                cat_uuid=value,
                 is_active=True,
             )
         except Category.DoesNotExist:
@@ -115,13 +115,13 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         self._category = category
         return value
 
-    def validate_subcategory_uuid(self, value):
+    def validate_subCat_uuid(self, value):
         if value is None:
             return value
 
         try:
             subcategory = SubCategory.objects.get(
-                uuid=value,
+                subCat_uuid=value,
                 is_active=True,
             )
         except SubCategory.DoesNotExist:
@@ -146,7 +146,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             and subcategory.category != category
         ):
             raise serializers.ValidationError({
-                "subcategory_uuid": (
+                "subCat_uuid": (
                     "Subcategory does not belong "
                     "to the selected category."
                 )
@@ -155,9 +155,9 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop("category_uuid")
+        validated_data.pop("cat_uuid")
         validated_data.pop(
-            "subcategory_uuid", None
+            "subCat_uuid", None
         )
 
         validated_data["category"] = self._category
@@ -175,12 +175,12 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
 class ServiceUpdateSerializer(serializers.ModelSerializer):
     """Partial update serializer for services."""
 
-    category_uuid = serializers.UUIDField(
+    cat_uuid = serializers.UUIDField(
         write_only=True,
         required=False,
     )
 
-    subcategory_uuid = serializers.UUIDField(
+    subCat_uuid = serializers.UUIDField(
         write_only=True,
         required=False,
         allow_null=True,
@@ -193,8 +193,8 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "duration",
-            "category_uuid",
-            "subcategory_uuid",
+            "cat_uuid",
+            "subCat_uuid",
             "is_active",
         )
 
@@ -205,10 +205,10 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate_category_uuid(self, value):
+    def validate_cat_uuid(self, value):
         try:
             category = Category.objects.get(
-                uuid=value,
+                cat_uuid=value,
                 is_active=True,
             )
         except Category.DoesNotExist:
@@ -218,14 +218,14 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         self._category = category
         return value
 
-    def validate_subcategory_uuid(self, value):
+    def validate_subCat_uuid(self, value):
         if value is None:
             self._subcategory = None
             return value
 
         try:
             subcategory = SubCategory.objects.get(
-                uuid=value,
+                subCat_uuid=value,
                 is_active=True,
             )
         except SubCategory.DoesNotExist:
@@ -236,12 +236,12 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance, validated_data):
-        if "category_uuid" in validated_data:
-            validated_data.pop("category_uuid")
+        if "cat_uuid" in validated_data:
+            validated_data.pop("cat_uuid")
             instance.category = self._category
 
-        if "subcategory_uuid" in validated_data:
-            validated_data.pop("subcategory_uuid")
+        if "subCat_uuid" in validated_data:
+            validated_data.pop("subCat_uuid")
             instance.subcategory = getattr(
                 self, "_subcategory", None
             )

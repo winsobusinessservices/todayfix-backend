@@ -81,7 +81,7 @@ class ServiceDetailAPIView(RetrieveAPIView):
     serializer_class = ServiceReadSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
-    lookup_field = "uuid"
+    lookup_field = "service_uuid"
 
     def get_queryset(self):
         return (
@@ -178,7 +178,7 @@ class ServiceUpdateAPIView(UpdateAPIView):
         IsAuthenticated,
         IsServiceOwner,
     ]
-    lookup_field = "uuid"
+    lookup_field = "service_uuid"
     http_method_names = ["patch"]
 
     def get_queryset(self):
@@ -237,14 +237,14 @@ class ServiceDeleteAPIView(APIView):
 
         obj = get_object_or_404(
             Service,
-            uuid=self.kwargs["uuid"],
+            service_uuid=self.kwargs["service_uuid"],
         )
         self.check_object_permissions(
             self.request, obj
         )
         return obj
 
-    def delete(self, request, uuid):
+    def delete(self, request, service_uuid):
         service = self.get_object()
         service.is_active = False
         service.save(update_fields=["is_active"])
@@ -342,21 +342,21 @@ class ServiceSearchAPIView(ListAPIView):
         category = params.get("category")
         if category:
             qs = qs.filter(
-                category__uuid=category,
+                category__cat_uuid=category,
             )
 
         # Subcategory
         subcategory = params.get("subcategory")
         if subcategory:
             qs = qs.filter(
-                subcategory__uuid=subcategory,
+                subcategory__subCat_uuid=subcategory,
             )
 
         # Business
         business = params.get("business")
         if business:
             qs = qs.filter(
-                business__uuid=business,
+                business__business_profile_uuid=business,
             )
 
         # Price range

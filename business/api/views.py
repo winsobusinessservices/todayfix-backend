@@ -160,6 +160,7 @@ class BusinessApplicationCreateAPIView(APIView):
                 application = BusinessApplicationService.submit(
                     user=request.user,
                     business_type=data["business_type"],
+                    location=data["location"],
                     category=data["category"],
                 )
 
@@ -375,7 +376,7 @@ class BusinessApplicationDetailAPIView(APIView):
     def get(
         self,
         request,
-        uuid,
+        business_application_uuid,
     ):
 
         application = get_object_or_404(
@@ -388,7 +389,7 @@ class BusinessApplicationDetailAPIView(APIView):
                 "identity",
                 "bank_account",
             ),
-            uuid=uuid,
+            business_application_uuid=business_application_uuid,
             user=request.user,
         )
 
@@ -492,12 +493,12 @@ class AdminApproveBusinessApplicationAPIView(
     def post(
         self,
         request,
-        uuid,
+        business_application_uuid,
     ):
 
         application = get_object_or_404(
             BusinessApplication,
-            uuid=uuid,
+            business_application_uuid=business_application_uuid,
         )
 
         try:
@@ -532,7 +533,7 @@ class AdminApproveBusinessApplicationAPIView(
                     ).data
                 ),
                 "business_profile_uuid": str(
-                    profile.uuid
+                    profile.business_profile_uuid
                 ),
             },
             status=status.HTTP_200_OK,
@@ -564,12 +565,12 @@ class AdminRejectBusinessApplicationAPIView(
     def post(
         self,
         request,
-        uuid,
+        business_application_uuid,
     ):
 
         application = get_object_or_404(
             BusinessApplication,
-            uuid=uuid,
+            business_application_uuid=business_application_uuid,
         )
 
         serializer = (
@@ -680,12 +681,12 @@ class BusinessProfileUpdateAPIView(APIView):
     def patch(
         self,
         request,
-        uuid,
+        business_profile_uuid,
     ):
 
         profile = get_object_or_404(
             BusinessProfile,
-            uuid=uuid,
+            business_profile_uuid=business_profile_uuid,
             owner=request.user,
         )
 

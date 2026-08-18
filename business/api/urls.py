@@ -31,7 +31,7 @@ urlpatterns = [
     ),
 
     path(
-        "applications/<uuid:uuid>/",
+        "applications/<uuid:business_application_uuid>/",
         BusinessApplicationDetailAPIView.as_view(),
         name="business-application-detail",
     ),
@@ -47,13 +47,13 @@ urlpatterns = [
     ),
 
     path(
-        "admin/applications/<uuid:uuid>/approve/",
+        "admin/applications/<uuid:business_application_uuid>/approve/",
         AdminApproveBusinessApplicationAPIView.as_view(),
         name="admin-business-application-approve",
     ),
 
     path(
-        "admin/applications/<uuid:uuid>/reject/",
+        "admin/applications/<uuid:business_application_uuid>/reject/",
         AdminRejectBusinessApplicationAPIView.as_view(),
         name="admin-business-application-reject",
     ),
@@ -69,7 +69,7 @@ urlpatterns = [
     ),
 
     path(
-        "profiles/<uuid:uuid>/",
+        "profiles/<uuid:business_profile_uuid>/",
         BusinessProfileUpdateAPIView.as_view(),
         name="business-profile-update",
     ),

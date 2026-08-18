@@ -22,7 +22,7 @@ class BusinessApplication(TimeStampedModel):
     information and remains pending until an ADMIN approves it.
     """
 
-    uuid = models.UUIDField(
+    business_application_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
@@ -39,6 +39,10 @@ class BusinessApplication(TimeStampedModel):
         max_length=20,
         choices=BusinessType.choices,
         db_index=True,
+    )
+
+    location = models.CharField(
+        max_length=255,
     )
 
     category = models.ForeignKey(
@@ -115,7 +119,7 @@ class BusinessApplication(TimeStampedModel):
 
     def __str__(self):
         return (
-            f"{self.uuid} - "
+            f"{self.business_application_uuid} - "
             f"{self.user.email} - "
             f"{self.business_type} - "
             f"{self.status}"
@@ -129,7 +133,7 @@ class BusinessIdentity(TimeStampedModel):
     This information belongs to a BusinessApplication.
     """
 
-    uuid = models.UUIDField(
+    business_identity_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
@@ -427,7 +431,7 @@ class BusinessIdentity(TimeStampedModel):
     def __str__(self):
         return (
             f"Identity - "
-            f"{self.application.uuid}"
+            f"{self.application.business_application_uuid}"
         )
 
 
@@ -438,7 +442,7 @@ class BusinessBankAccount(TimeStampedModel):
     Bank details are mandatory for every business type.
     """
 
-    uuid = models.UUIDField(
+    business_bank_account_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
@@ -562,7 +566,7 @@ class BusinessBankAccount(TimeStampedModel):
 
     def __str__(self):
         return (
-            f"{self.application.uuid} - "
+            f"{self.application.business_application_uuid} - "
             f"{self.bank_name}"
         )
 
@@ -575,7 +579,7 @@ class BusinessProfile(TimeStampedModel):
     has been approved.
     """
 
-    uuid = models.UUIDField(
+    business_profile_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
@@ -592,6 +596,17 @@ class BusinessProfile(TimeStampedModel):
         max_length=20,
         choices=BusinessType.choices,
         db_index=True,
+    )
+
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="business_profiles",
+        db_index=True,
+    )
+
+    location = models.CharField(
+        max_length=255,
     )
 
     name = models.CharField(

@@ -460,8 +460,12 @@ class AddressSerializer(
     serializers.ModelSerializer
 ):
 
+    add_uuid = serializers.UUIDField(
+        read_only=True,
+    )
+
     user_uuid = serializers.UUIDField(
-        source="user.uuid",
+        source="user.user_uuid",
         read_only=True,
     )
 
@@ -470,15 +474,14 @@ class AddressSerializer(
         model = Address
 
         fields = (
-            "id",
+            "add_uuid",
             "user_uuid",
             "address_line",
             "locality",
             "city",
             "state",
             "pincode",
-            "latitude",
-            "longitude",
+            "location",
             "address_type",
             "is_default",
             "created_at",
@@ -486,7 +489,7 @@ class AddressSerializer(
         )
 
         read_only_fields = (
-            "id",
+            "add_uuid",
             "user_uuid",
             "created_at",
             "updated_at",
@@ -621,7 +624,7 @@ class UnifiedPasswordResetSerializer(
         required=False
     )
 
-    uuid = serializers.UUIDField(
+    user_uuid = serializers.UUIDField(
         required=False
     )
 
@@ -725,11 +728,9 @@ class UnifiedPasswordResetSerializer(
         # RESET USING LINK
         # -------------------------------------------------
 
-        if not attrs.get("uuid"):
-
+        if not attrs.get("user_uuid"):
             raise serializers.ValidationError({
-                "uuid":
-                "This field is required."
+                "user_uuid": "This field is required."
             })
 
         if not attrs.get("token"):
@@ -772,12 +773,12 @@ class UnifiedPasswordResetSerializer(
             })
 
         if (
-            reset_token.user.uuid
-            != attrs["uuid"]
-        ):
+            reset_token.user.user_uuid
+            != attrs["user_uuid"]
+            ):
 
             raise serializers.ValidationError({
-                "uuid":
+                "user_uuid":
                 "UUID does not match the reset token."
             })
 
@@ -924,7 +925,7 @@ class VerifyEmailSerializer(
     serializers.Serializer
 ):
 
-    uuid = serializers.UUIDField()
+    pending_registration_uuid = serializers.UUIDField()
 
     token = serializers.CharField()
 
