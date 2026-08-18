@@ -16,7 +16,7 @@ class Category(TimeStampedModel):
         Electronics
     """
 
-    uuid = models.UUIDField(
+    cat_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,
@@ -82,7 +82,7 @@ class SubCategory(TimeStampedModel):
             Plumbing
     """
 
-    uuid = models.UUIDField(
+    subCat_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,

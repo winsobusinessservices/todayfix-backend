@@ -29,7 +29,7 @@ urlpatterns = [
     ),
 
     path(
-        "<uuid:uuid>/",
+        "<uuid:service_uuid>/",
         ServiceDetailAPIView.as_view(),
         name="service-detail",
     ),
@@ -45,13 +45,13 @@ urlpatterns = [
     ),
 
     path(
-        "<uuid:uuid>/update/",
+        "<uuid:service_uuid>/update/",
         ServiceUpdateAPIView.as_view(),
         name="service-update",
     ),
 
     path(
-        "<uuid:uuid>/delete/",
+        "<uuid:service_uuid>/delete/",
         ServiceDeleteAPIView.as_view(),
         name="service-delete",
     ),

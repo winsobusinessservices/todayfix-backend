@@ -6,7 +6,7 @@ from .models import Service
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
     list_display = (
-        "uuid",
+        "service_uuid",
         "name",
         "business",
         "category",
@@ -22,13 +22,13 @@ class ServiceAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "uuid",
+        "service_uuid",
         "name",
         "business__name",
     )
 
     readonly_fields = (
-        "uuid",
+        "service_uuid",
         "created_at",
         "updated_at",
     )

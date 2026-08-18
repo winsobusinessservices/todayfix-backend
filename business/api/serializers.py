@@ -26,6 +26,12 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         required=True,
     )
 
+    location = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+
     category = serializers.ChoiceField(
         choices=[],
         required=True,
@@ -475,6 +481,11 @@ class BusinessApplicationFullSerializer(
         read_only=True,
     )
 
+    user_uuid = serializers.UUIDField(
+        source="user.user_uuid",
+        read_only=True,
+    )
+
     identity = serializers.SerializerMethodField()
 
     bank_account = serializers.SerializerMethodField()
@@ -483,9 +494,11 @@ class BusinessApplicationFullSerializer(
         model = BusinessApplication
 
         fields = (
-            "uuid",
+            "user_uuid",
+            "business_application_uuid",
             "user_email",
             "business_type",
+            "location",
             "status",
             "identity",
             "bank_account",
@@ -504,7 +517,7 @@ class BusinessApplicationFullSerializer(
             return None
 
         return {
-            "uuid": str(identity.uuid),
+            "business_identity_uuid": str(identity.business_identity_uuid),
             "pan_number": identity.pan_number,
             "pan_document": (
                 identity.pan_document.url
@@ -561,7 +574,7 @@ class BusinessApplicationFullSerializer(
             return None
 
         return {
-            "uuid": str(bank.uuid),
+            "business_bank_account_uuid": str(bank.business_bank_account_uuid),
             "account_holder_name": (
                 bank.account_holder_name
             ),
@@ -611,7 +624,7 @@ class BusinessProfileSerializer(
         model = BusinessProfile
 
         fields = (
-            "uuid",
+            "business_profile_uuid",
             "owner",
             "business_type",
             "name",
@@ -624,7 +637,7 @@ class BusinessProfileSerializer(
         )
 
         read_only_fields = (
-            "uuid",
+            "business_profile_uuid",
             "owner",
             "business_type",
             "created_at",

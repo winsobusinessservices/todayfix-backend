@@ -196,7 +196,7 @@ class AuthService:
 
     @staticmethod
     def verify_email_registration(
-        uuid_value,
+        pending_registration_uuid,
         token,
     ):
 
@@ -204,7 +204,7 @@ class AuthService:
 
             pending_registration = (
                 PendingRegistration.objects.get(
-                    uuid=uuid_value,
+                    pending_registration_uuid=pending_registration_uuid,
                     token=token,
                 )
             )
@@ -277,7 +277,7 @@ class AuthService:
         # -----------------------------------------------------
 
         user = CustomUser(
-            uuid=pending_registration.uuid,
+            user_uuid=pending_registration.pending_registration_uuid,
             first_name=pending_registration.first_name,
             last_name=pending_registration.last_name,
             email=pending_registration.email,
@@ -358,6 +358,8 @@ class AuthService:
                 )
             })
 
+        
+
         # -----------------------------------------------------
         # Check phone uniqueness again
         # -----------------------------------------------------
@@ -400,7 +402,7 @@ class AuthService:
         # -----------------------------------------------------
 
         user = CustomUser(
-            uuid=pending_registration.uuid,
+            user_uuid=pending_registration.pending_registration_uuid,
             first_name=pending_registration.first_name,
             last_name=pending_registration.last_name,
             email=pending_registration.email,
@@ -506,7 +508,7 @@ class AuthService:
 
         return (
             f"{settings.FRONTEND_RESET_PASSWORD_URL}"
-            f"?uuid={reset_token.user.uuid}"
+            f"?user_uuid={reset_token.user.user_uuid}"
             f"&token={reset_token.token}"
         )
 
@@ -516,14 +518,14 @@ class AuthService:
 
     @staticmethod
     def verify_password_reset_user(
-        uuid_value,
+        user_uuid,
         email,
     ):
 
         try:
 
             user = CustomUser.objects.get(
-                uuid=uuid_value,
+                user_uuid=user_uuid,
                 email__iexact=email,
             )
 

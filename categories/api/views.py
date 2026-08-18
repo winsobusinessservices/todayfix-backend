@@ -112,13 +112,13 @@ class CategoryDetailAPIView(APIView):
         summary="Get category details",
         responses=CategorySerializer,
     )
-    def get(self, request, uuid):
+    def get(self, request, cat_uuid):
 
         category = get_object_or_404(
             Category.objects.prefetch_related(
                 "subcategories"
             ),
-            uuid=uuid,
+            cat_uuid=cat_uuid,
             is_active=True,
         )
 
@@ -135,11 +135,11 @@ class CategoryDetailAPIView(APIView):
         request=CategorySerializer,
         responses=CategorySerializer,
     )
-    def patch(self, request, uuid):
+    def patch(self, request, cat_uuid):
 
         category = get_object_or_404(
             Category,
-            uuid=uuid,
+            cat_uuid=cat_uuid,
         )
 
         serializer = CategorySerializer(
@@ -189,11 +189,11 @@ class SubCategoryListCreateAPIView(APIView):
         summary="List subcategories",
         responses=SubCategorySerializer(many=True),
     )
-    def get(self, request, category_uuid):
+    def get(self, request, cat_uuid):
 
         category = get_object_or_404(
             Category,
-            uuid=category_uuid,
+            cat_uuid=cat_uuid,
             is_active=True,
         )
 
@@ -220,11 +220,11 @@ class SubCategoryListCreateAPIView(APIView):
             201: SubCategorySerializer,
         },
     )
-    def post(self, request, category_uuid):
+    def post(self, request, cat_uuid):
 
         category = get_object_or_404(
             Category,
-            uuid=category_uuid,
+            cat_uuid=cat_uuid,
             is_active=True,
         )
 
@@ -271,13 +271,13 @@ class SubCategoryDetailAPIView(APIView):
         summary="Get subcategory",
         responses=SubCategorySerializer,
     )
-    def get(self, request, uuid):
+    def get(self, request, subCat_uuid):
 
         subcategory = get_object_or_404(
             SubCategory.objects.select_related(
                 "category"
             ),
-            uuid=uuid,
+            subCat_uuid=subCat_uuid,
             is_active=True,
         )
 
@@ -296,11 +296,11 @@ class SubCategoryDetailAPIView(APIView):
         request=SubCategorySerializer,
         responses=SubCategorySerializer,
     )
-    def patch(self, request, uuid):
+    def patch(self, request, subCat_uuid):
 
         subcategory = get_object_or_404(
             SubCategory,
-            uuid=uuid,
+            subCat_uuid=subCat_uuid,
         )
 
         serializer = SubCategorySerializer(

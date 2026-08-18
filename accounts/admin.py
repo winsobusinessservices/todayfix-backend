@@ -8,7 +8,7 @@ from .models import EmailTemplate
 class CustomUserAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "uuid",
+        "user_uuid",
         "first_name",
         "last_name",
         "email",
@@ -72,7 +72,7 @@ class PendingRegistrationAdmin(admin.ModelAdmin):
 
     list_display = (
         "id",
-        "uuid",
+        "pending_registration_uuid",
         "first_name",
         "last_name",
         "email",

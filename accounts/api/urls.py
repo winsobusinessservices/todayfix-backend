@@ -128,19 +128,19 @@ urlpatterns = [
     ),
 
     path(
-        "addresses/<int:address_id>/",
+        "addresses/<uuid:add_uuid>/",
         GetUserAddressAPIView.as_view(),
         name="address-detail",
     ),
 
     path(
-        "addresses/<int:address_id>/update/",
+        "addresses/<uuid:add_uuid>/update/",
         UpdateUserAddressAPIView.as_view(),
         name="address-update",
     ),
 
     path(
-        "addresses/<int:address_id>/delete/",
+        "addresses/<uuid:add_uuid>/delete/",
         DeleteUserAddressAPIView.as_view(),
         name="address-delete",
     ),

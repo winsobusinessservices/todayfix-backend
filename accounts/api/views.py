@@ -142,6 +142,7 @@ class RegisterUserAPIView(CreateAPIView):
             otp = SignupOTPService.create_otp(
                 phone=phone
             )
+            print(f"Generated Signup OTP: {otp}")
 
             logger.debug(
                 "SIGNUP OTP | Phone: %s | OTP: %s | Expires: 5 min",
@@ -158,7 +159,7 @@ class RegisterUserAPIView(CreateAPIView):
 
         verification_link = (
             f"{settings.FRONTEND_DOMAIN}/verify-email/"
-            f"?uuid={pending_registration.uuid}"
+            f"?pending_registration_uuid={pending_registration.pending_registration_uuid}"
             f"&token={pending_registration.token}"
         )
 
@@ -249,8 +250,8 @@ class VerifyEmailAPIView(APIView):
             raise_exception=True
         )
 
-        uuid_value = serializer.validated_data[
-            "uuid"
+        pending_registration_uuid = serializer.validated_data[
+            "pending_registration_uuid"
         ]
 
         token = serializer.validated_data[
@@ -258,7 +259,7 @@ class VerifyEmailAPIView(APIView):
         ]
 
         user = AuthService.verify_email_registration(
-            uuid_value=uuid_value,
+            pending_registration_uuid=pending_registration_uuid,
             token=token,
         )
 
@@ -274,7 +275,7 @@ class VerifyEmailAPIView(APIView):
                     "refresh": str(refresh),
                     "user": {
                         "id": user.id,
-                        "uuid": str(user.uuid),
+                        "user_uuid": str(user.user_uuid),
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "email": user.email,
@@ -337,7 +338,7 @@ class LoginAPIView(CreateAPIView):
                     "access": str(access),
                     "refresh": str(refresh),
                     "id": user.id,
-                    "uuid": str(user.uuid),
+                    "user_uuid": str(user.user_uuid),
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
@@ -423,7 +424,7 @@ class ProfileAPIView(APIView):
                 ),
                 "data": {
                     "id": user.id,
-                    "uuid": str(user.uuid),
+                    "user_uuid": str(user.user_uuid),
                     "firstName": user.first_name,
                     "lastName": user.last_name,
                     "role": user.role,
@@ -501,7 +502,7 @@ class UpdateProfileAPIView(APIView):
                 ),
                 "data": {
                     "id": request.user.id,
-                    "uuid": str(request.user.uuid),
+                    "user_uuid": str(request.user.user_uuid),
                     "firstName": (
                         request.user.first_name
                     ),
@@ -671,12 +672,12 @@ class GetUserAddressAPIView(APIView):
     def get(
         self,
         request,
-        address_id
+        add_uuid
     ):
 
         address = get_object_or_404(
             Address,
-            id=address_id,
+            add_uuid=add_uuid,
             user=request.user,
         )
 
@@ -718,12 +719,12 @@ class UpdateUserAddressAPIView(APIView):
     def post(
         self,
         request,
-        address_id
+        add_uuid
     ):
 
         address = get_object_or_404(
             Address,
-            id=address_id,
+            add_uuid=add_uuid,
             user=request.user,
         )
 
@@ -772,13 +773,13 @@ class DeleteUserAddressAPIView(APIView):
     def delete(
         self,
         request,
-        address_id
+        add_uuid
     ):
 
         try:
 
             address = Address.objects.get(
-                id=address_id,
+                add_uuid=add_uuid,
                 user=request.user,
             )
 
@@ -947,7 +948,7 @@ class UnifiedPasswordResetView(APIView):
 
             reset_link = (
                 f"{settings.FRONTEND_DOMAIN}/reset-password/"
-                f"?uuid={user.uuid}"
+                f"?user_uuid={user.user_uuid}"
                 f"&token={reset_token.token}"
             )
 
@@ -1120,7 +1121,7 @@ class SignupVerifyOTPAPIView(APIView):
                     "refresh": str(refresh),
                     "user": {
                         "id": user.id,
-                        "uuid": str(user.uuid),
+                        "user_uuid": str(user.user_uuid),
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "email": user.email,
@@ -1306,7 +1307,7 @@ class LoginVerifyOTPAPIView(APIView):
                     "refresh": str(refresh),
                     "user": {
                         "id": user.id,
-                        "uuid": str(user.uuid),
+                        "user_uuid": str(user.user_uuid),
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "email": user.email,

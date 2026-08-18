@@ -10,7 +10,7 @@ from .models import BusinessApplication, BusinessProfile
 class BusinessApplicationService:
 
     @staticmethod
-    def submit(user, business_type, category):
+    def submit(user, business_type, location, category):
         # USER ROLE CHECK
         if getattr(user, "role", None) != UserRole.USER:
             raise ValueError(
@@ -32,6 +32,7 @@ class BusinessApplicationService:
         application = BusinessApplication(
             user=user,
             business_type=business_type,
+            location=location,
             category=category,
             status=BusinessApplicationStatus.PENDING,
         )
@@ -119,24 +120,13 @@ class BusinessApplicationService:
                 business_type=application.business_type,
                 defaults={
                     "category": application.category,
+                    "location": application.location,
                     "name": (
-                        getattr(
-                            user,
-                            "name",
-                            None,
-                        )
+                        f"{user.first_name} {user.last_name}".strip()
                         or user.email
                     ),
-                    "email": getattr(
-                        user,
-                        "email",
-                        "",
-                    ),
-                    "phone": getattr(
-                        user,
-                        "phone",
-                        "",
-                    ),
+                    "email": user.email or "",
+                    "phone": user.phone or "",
                     "website": identity.website,
                 },
             )

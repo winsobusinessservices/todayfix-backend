@@ -16,34 +16,33 @@ from django.utils import timezone
 class BookingUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ("uuid", "first_name", "last_name", "phone")
+        fields = ("user_uuid", "first_name", "last_name", "phone")
 
 
 class BookingBusinessSerializer(serializers.ModelSerializer):
     class Meta:
         model = BusinessProfile
-        fields = ("uuid", "name", "phone")
+        fields = ("business_profile_uuid", "name", "phone")
 
 
 class BookingServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
-        fields = ("uuid", "name", "duration")
+        fields = ("service_uuid", "name", "duration")
 
 
 class BookingAddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = Address
         fields = (
-            "uuid",
+            "add_uuid",
             "address_type",
             "address_line",
             "locality",
             "city",
             "state",
             "pincode",
-            "latitude",
-            "longitude",
+            "location",
         )
 
 

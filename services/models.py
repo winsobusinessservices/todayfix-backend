@@ -13,7 +13,7 @@ class Service(TimeStampedModel):
     Category → SubCategory → Service → BusinessProfile
     """
 
-    uuid = models.UUIDField(
+    service_uuid = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
         editable=False,

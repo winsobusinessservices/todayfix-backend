@@ -5,8 +5,8 @@ from ..models import Category, SubCategory
 
 class SubCategorySerializer(serializers.ModelSerializer):
 
-    category_uuid = serializers.UUIDField(
-        source="category.uuid",
+    cat_uuid = serializers.UUIDField(
+        source="category.cat_uuid",
         read_only=True,
     )
 
@@ -19,8 +19,8 @@ class SubCategorySerializer(serializers.ModelSerializer):
         model = SubCategory
 
         fields = (
-            "uuid",
-            "category_uuid",
+            "subCat_uuid",
+            "cat_uuid",
             "category_name",
             "name",
             "slug",
@@ -32,8 +32,8 @@ class SubCategorySerializer(serializers.ModelSerializer):
         )
 
         read_only_fields = (
-            "uuid",
-            "category_uuid",
+            "subCat_uuid",
+            "cat_uuid",
             "category_name",
             "created_at",
             "updated_at",
@@ -61,7 +61,7 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
 
         fields = (
-            "uuid",
+            "cat_uuid",
             "name",
             "slug",
             "description",
@@ -73,7 +73,7 @@ class CategorySerializer(serializers.ModelSerializer):
         )
 
         read_only_fields = (
-            "uuid",
+            "cat_uuid",
             "subcategories",
             "created_at",
             "updated_at",
