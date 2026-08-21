@@ -11,6 +11,8 @@ from .choices import (
     BankVerificationStatus,
     BusinessApplicationStatus,
     BusinessType,
+    EmployeeAvailabilityStatus,
+    DayOfWeek,
 )
 from categories.models import Category, SubCategory
 
@@ -156,10 +158,21 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    pan_document = models.FileField(
-        upload_to="business/applications/pan/",
+    pan_document = models.BinaryField(
         null=True,
         blank=True,
+    )
+
+    pan_document_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    pan_document_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
     )
 
     # =====================================================
@@ -172,10 +185,21 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    aadhaar_document = models.FileField(
-        upload_to="business/applications/aadhaar/",
+    aadhaar_document = models.BinaryField(
         null=True,
         blank=True,
+    )
+
+    aadhaar_document_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    aadhaar_document_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
     )
 
     # =====================================================
@@ -216,32 +240,76 @@ class BusinessIdentity(TimeStampedModel):
     # STORE PHOTOS
     # =====================================================
 
-    internal_store_photo = models.ImageField(
-        upload_to="business/applications/store/internal/",
+    internal_store_photo  = models.BinaryField(
         null=True,
         blank=True,
     )
 
-    external_store_photo = models.ImageField(
-        upload_to="business/applications/store/external/",
+    internal_store_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    internal_store_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    external_store_photo = models.BinaryField(
         null=True,
         blank=True,
     )
 
-    cancelled_gst_bill_book_photo = models.ImageField(
-        upload_to="business/applications/store/cancelled-bill/",
+    external_store_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    external_store_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    cancelled_gst_bill_book_photo = models.BinaryField(
         null=True,
         blank=True,
+    )
+
+    cancelled_gst_bill_book_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    cancelled_gst_bill_book_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
     )
 
     # =====================================================
     # OPTIONAL
     # =====================================================
 
-    logo = models.ImageField(
-        upload_to="business/applications/logos/",
+    logo = models.BinaryField(
         null=True,
         blank=True,
+    )
+
+    logo_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    logo_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
     )
 
     website = models.URLField(
@@ -667,3 +735,316 @@ class BusinessProfile(TimeStampedModel):
             f"({self.business_type})"
         )
 
+#======================================================================================================
+#                                       Employees Model
+#======================================================================================================
+class Employee(TimeStampedModel):
+    """
+    Employee working under a BusinessProfile.
+    Employees do not have separate login accounts.
+    """
+
+    employee_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    business = models.ForeignKey(
+        BusinessProfile,
+        on_delete=models.CASCADE,
+        related_name="employees",
+    )
+
+    name = models.CharField(
+        max_length=150,
+    )
+
+    email = models.EmailField(
+        max_length=254,
+    )
+
+    phone = models.CharField(
+        max_length=10,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "phone"],
+                name="unique_employee_phone_per_business",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} - {self.business.name}"
+
+#==================================================================================================
+#                               Provider Availability Model
+#==================================================================================================
+class ProviderAvailability(TimeStampedModel):
+    """
+    Stores the current availability status of a service provider.
+
+    Individual business:
+        owner is the provider.
+
+    Company / Investor business:
+        employee is the provider.
+    """
+
+    provider_availability_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    business = models.ForeignKey(
+        BusinessProfile,
+        on_delete=models.CASCADE,
+        related_name="provider_availabilities",
+    )
+
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="provider_availability",
+    )
+
+    employee = models.OneToOneField(
+        Employee,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="provider_availability",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=EmployeeAvailabilityStatus.choices,
+        default=EmployeeAvailabilityStatus.AVAILABLE,
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = "Provider Availability"
+        verbose_name_plural = "Provider Availabilities"
+
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        owner__isnull=False,
+                        employee__isnull=True,
+                    )
+                    | Q(
+                        owner__isnull=True,
+                        employee__isnull=False,
+                    )
+                ),
+                name="provider_availability_one_provider",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if bool(self.owner_id) == bool(self.employee_id):
+            raise ValidationError(
+                "Availability must belong to either "
+                "an owner or an employee."
+            )
+
+        if self.owner_id and self.business_id:
+            if not BusinessProfile.objects.filter(
+                pk=self.business_id,
+                owner_id=self.owner_id,
+            ).exists():
+                raise ValidationError(
+                    "Owner must belong to the selected business."
+                )
+
+        if self.employee_id and self.business_id:
+            if self.employee.business_id != self.business_id:
+                raise ValidationError(
+                    "Employee must belong to the selected business."
+                )
+
+    def __str__(self):
+        if self.employee:
+            provider_name = self.employee.name
+        else:
+            provider_name = self.owner.email
+
+        return f"{provider_name} - {self.status}"
+# =================================================================================================================
+#                                   Provider Working Schedule Model
+# =================================================================================================================
+
+class EmployeeWorkingSchedule(TimeStampedModel):
+    """
+    Stores the working schedule of a service provider.
+
+    Individual business:
+        owner is the provider.
+
+    Company / Investor business:
+        employee is the provider.
+
+    Each provider can configure:
+        MORNING
+        AFTERNOON
+        EVENING
+
+    with their own start and end times.
+    """
+
+    employee_working_schedule_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    business = models.ForeignKey(
+        BusinessProfile,
+        on_delete=models.CASCADE,
+        related_name="working_schedules",
+    )
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="working_schedules",
+    )
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="working_schedules",
+    )
+
+    day_of_week = models.CharField(
+        max_length=10,
+        choices=DayOfWeek.choices,
+    )
+
+    slot_type = models.CharField(
+        max_length=10,
+        choices=[
+            ("MORNING", "Morning"),
+            ("AFTERNOON", "Afternoon"),
+            ("EVENING", "Evening"),
+        ],
+    )
+
+    start_time = models.TimeField()
+
+    end_time = models.TimeField()
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    class Meta:
+        ordering = [
+            "day_of_week",
+            "start_time",
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "owner",
+                    "day_of_week",
+                    "slot_type",
+                ],
+                condition=Q(
+                    owner__isnull=False,
+                ),
+                name="unique_owner_schedule_slot",
+            ),
+
+            models.UniqueConstraint(
+                fields=[
+                    "employee",
+                    "day_of_week",
+                    "slot_type",
+                ],
+                condition=Q(
+                    employee__isnull=False,
+                ),
+                name="unique_employee_schedule_slot",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        # -----------------------------------------------------
+        # Provider must be either owner OR employee
+        # -----------------------------------------------------
+
+        if bool(self.owner_id) == bool(self.employee_id):
+            raise ValidationError(
+                "Schedule must belong to either an owner "
+                "or an employee."
+            )
+
+        # -----------------------------------------------------
+        # Business must match provider
+        # -----------------------------------------------------
+
+        if self.owner_id and self.business_id:
+            if not BusinessProfile.objects.filter(
+                pk=self.business_id,
+                owner_id=self.owner_id,
+            ).exists():
+                raise ValidationError(
+                    "Owner must belong to the selected business."
+                )
+
+        if self.employee_id and self.business_id:
+            if self.employee.business_id != self.business_id:
+                raise ValidationError(
+                    "Employee must belong to the selected business."
+                )
+
+        # -----------------------------------------------------
+        # Start time must be before end time
+        # -----------------------------------------------------
+
+        if self.start_time >= self.end_time:
+            raise ValidationError(
+                {
+                    "end_time": (
+                        "End time must be later than start time."
+                    )
+                }
+            )
+
+    def __str__(self):
+        if self.employee:
+            provider_name = self.employee.name
+        else:
+            provider_name = self.owner.email
+
+        return (
+            f"{provider_name} - "
+            f"{self.day_of_week} - "
+            f"{self.slot_type} - "
+            f"{self.start_time}-{self.end_time}"
+        )

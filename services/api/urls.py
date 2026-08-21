@@ -7,6 +7,8 @@ from .views import (
     ServiceUpdateAPIView,
     ServiceDeleteAPIView,
     ServiceSearchAPIView,
+    ServiceEmployeeCreateAPIView,
+    ServiceEmployeeListAPIView,
 )
 
 
@@ -54,5 +56,17 @@ urlpatterns = [
         "<uuid:service_uuid>/delete/",
         ServiceDeleteAPIView.as_view(),
         name="service-delete",
+    ),
+
+    path(
+        "assign-employee/",
+        ServiceEmployeeCreateAPIView.as_view(),
+        name="service-employee-create",
+    ),
+
+    path(
+        "<uuid:service_uuid>/employees/",
+        ServiceEmployeeListAPIView.as_view(),
+        name="service-employee-list",
     ),
 ]

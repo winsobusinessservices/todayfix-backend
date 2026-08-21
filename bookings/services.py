@@ -1,10 +1,13 @@
+from datetime import datetime, timedelta
+
 from django.db import transaction
 
 from accounts.models import Address
-from services.models import Service
+from business.models import EmployeeWorkingSchedule
+from services.models import Service, ServiceEmployee
 
 from .choices import BookingStatus
-from .models import Booking
+from .models import Booking, BookingEmployee
 
 
 class BookingService:
@@ -20,16 +23,20 @@ class BookingService:
         service_uuid,
         address_uuid,
         scheduled_date,
-        scheduled_time,
+        slot_type,
         notes="",
     ):
         """
-        Create a new booking safely.
+        Create a scheduled booking and assign an available provider.
         """
-        # Fetch and validate service
+
+        # =====================================================
+        # FETCH SERVICE
+        # =====================================================
+
         try:
             service = Service.objects.get(
-                uuid=service_uuid,
+                service_uuid=service_uuid,
                 is_active=True,
             )
         except Service.DoesNotExist:
@@ -37,17 +44,25 @@ class BookingService:
                 "Service not found or inactive."
             )
 
-        # Validate business is active
+        # =====================================================
+        # VALIDATE BUSINESS
+        # =====================================================
+
         business = service.business
+
         if not business.is_active:
             raise ValueError(
-                "The business offering this service is currently inactive."
+                "The business offering this service is "
+                "currently inactive."
             )
 
-        # Fetch and validate address
+        # =====================================================
+        # FETCH ADDRESS
+        # =====================================================
+
         try:
             address = Address.objects.get(
-                uuid=address_uuid,
+                add_uuid=address_uuid,
                 user=user,
             )
         except Address.DoesNotExist:
@@ -55,80 +70,587 @@ class BookingService:
                 "Address not found or does not belong to you."
             )
 
-        # Create booking (snapshots price)
+        # =====================================================
+        # VALIDATE SLOT
+        # =====================================================
+
+        valid_slots = {
+            "MORNING",
+            "AFTERNOON",
+            "EVENING",
+        }
+
+        if slot_type not in valid_slots:
+            raise ValueError(
+                "Invalid booking slot."
+            )
+
+        # =====================================================
+        # DETERMINE DAY
+        # =====================================================
+
+        day_of_week = scheduled_date.strftime(
+            "%A"
+        ).upper()
+
+        # =====================================================
+        # SERVICE DURATION
+        # =====================================================
+
+        service_duration = service.duration
+
+        if not service_duration or service_duration <= 0:
+            raise ValueError(
+                "Service duration must be greater than zero."
+            )
+
+        # =====================================================
+        # FIND PROVIDER SCHEDULES
+        # =====================================================
+
+        if business.business_type == "INDIVIDUAL":
+
+            schedules = (
+                EmployeeWorkingSchedule.objects
+                .filter(
+                    business=business,
+                    owner=business.owner,
+                    employee__isnull=True,
+                    day_of_week=day_of_week,
+                    slot_type=slot_type,
+                    is_active=True,
+                )
+                .select_related("owner")
+            )
+
+        else:
+
+            assigned_employee_ids = (
+                ServiceEmployee.objects
+                .filter(
+                    service=service,
+                    employee__business=business,
+                    employee__is_active=True,
+                )
+                .values_list(
+                    "employee_id",
+                    flat=True,
+                )
+            )
+
+            schedules = (
+                EmployeeWorkingSchedule.objects
+                .filter(
+                    business=business,
+                    employee_id__in=assigned_employee_ids,
+                    day_of_week=day_of_week,
+                    slot_type=slot_type,
+                    is_active=True,
+                )
+                .select_related("employee")
+            )
+
+        # =====================================================
+        # FIND AVAILABLE PROVIDER
+        # =====================================================
+
+        selected_schedule = None
+        selected_employee = None
+
+        for schedule in schedules:
+
+            slot_start = datetime.combine(
+                scheduled_date,
+                schedule.start_time,
+            )
+
+            slot_end = datetime.combine(
+                scheduled_date,
+                schedule.end_time,
+            )
+
+            service_end = (
+                slot_start
+                + timedelta(minutes=service_duration)
+            )
+
+            # Service must completely fit inside the slot.
+            if service_end > slot_end:
+                continue
+
+            # =================================================
+            # DETERMINE PROVIDER
+            # =================================================
+
+            provider_employee = schedule.employee
+
+            # =================================================
+            # CHECK EXISTING BOOKINGS
+            # =================================================
+
+            existing_bookings = (
+                Booking.objects
+                .filter(
+                    business=business,
+                    scheduled_date=scheduled_date,
+                    status__in=[
+                        BookingStatus.PENDING,
+                        BookingStatus.CONFIRMED,
+                        BookingStatus.IN_PROGRESS,
+                    ],
+                )
+                .select_related(
+                    "service",
+                    "employee",
+                )
+            )
+
+            provider_available = True
+
+            for existing_booking in existing_bookings:
+
+                # -------------------------------------------------
+                # COMPANY / INVESTOR
+                # -------------------------------------------------
+                # Only bookings assigned to this employee
+                # should block this employee.
+
+                if provider_employee:
+                    if not BookingEmployee.objects.filter(
+                        booking=existing_booking,
+                        employee=provider_employee,
+                    ).exists():
+                        continue
+
+                # -------------------------------------------------
+                # INDIVIDUAL
+                # -------------------------------------------------
+                # Individual business has no Employee record.
+                # Therefore all active bookings for that business
+                # belong to the owner and block the owner.
+
+                existing_start = datetime.combine(
+                    scheduled_date,
+                    existing_booking.scheduled_time,
+                )
+
+                existing_duration = (
+                    existing_booking.service.duration
+                )
+
+                existing_end = (
+                    existing_start
+                    + timedelta(
+                        minutes=existing_duration
+                    )
+                )
+
+                # -------------------------------------------------
+                # CHECK TIME OVERLAP
+                # -------------------------------------------------
+
+                if (
+                    slot_start < existing_end
+                    and service_end > existing_start
+                ):
+                    provider_available = False
+                    break
+
+            if not provider_available:
+                continue
+
+            # =================================================
+            # PROVIDER FOUND
+            # =================================================
+
+            selected_schedule = schedule
+            selected_employee = provider_employee
+
+            break
+
+        # =====================================================
+        # NO PROVIDER AVAILABLE
+        # =====================================================
+
+        if not selected_schedule:
+            raise ValueError(
+                "No provider is available for the selected "
+                "date and slot."
+            )
+
+        # =====================================================
+        # BOOKING START TIME
+        # =====================================================
+
+        scheduled_time = selected_schedule.start_time
+
+        # =====================================================
+        # CREATE BOOKING
+        # =====================================================
+
         booking = Booking.objects.create(
             user=user,
             service=service,
             business=business,
+            employee=selected_employee,
             address=address,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
+            slot_type=slot_type,
             price=service.price,
             status=BookingStatus.PENDING,
             notes=notes,
         )
 
+        if selected_employee:
+            BookingEmployee.objects.create(
+                booking=booking,
+                employee=selected_employee,
+            )
+
         return booking
+
+    @staticmethod
+    def get_slot_availability(
+        user,
+        service_uuid,
+        scheduled_date,
+    ):
+        """
+        Check provider availability for each booking slot.
+
+        A slot is available when at least one qualified
+        provider is available for the requested service.
+
+        required_employees is the default number requested by
+        the service, but it does not make the slot unavailable
+        when fewer providers are currently free.
+        """
+
+        from datetime import datetime, timedelta
+
+        from django.utils import timezone
+
+        from business.models import (
+            Employee,
+            EmployeeWorkingSchedule,
+            ProviderAvailability,
+        )
+        from services.models import ServiceEmployee
+
+        # =====================================================
+        # FETCH SERVICE
+        # =====================================================
+
+        try:
+            service = Service.objects.get(
+                service_uuid=service_uuid,
+                is_active=True,
+            )
+        except Service.DoesNotExist:
+            raise ValueError(
+                "Service not found or inactive."
+            )
+
+        business = service.business
+
+        if not business.is_active:
+            raise ValueError(
+                "The business offering this service is currently inactive."
+            )
+
+        # =====================================================
+        # VALIDATE DATE
+        # =====================================================
+
+        if scheduled_date <= timezone.localdate():
+            raise ValueError(
+                "Availability can only be checked for a future date."
+            )
+
+        day_of_week = scheduled_date.strftime("%A").upper()
+
+        slot_types = [
+            "MORNING",
+            "AFTERNOON",
+            "EVENING",
+        ]
+
+        availability = {}
+
+        # =====================================================
+        # GET QUALIFIED EMPLOYEES
+        # =====================================================
+
+        assigned_employee_ids = set(
+            ServiceEmployee.objects.filter(
+                service=service,
+                employee__business=business,
+                employee__is_active=True,
+            ).values_list(
+                "employee_id",
+                flat=True,
+            )
+        )
+
+        # =====================================================
+        # CHECK EACH SLOT
+        # =====================================================
+
+        for slot_type in slot_types:
+
+            available_employees = 0
+
+            # -------------------------------------------------
+            # COMPANY / INVESTOR BUSINESS
+            # -------------------------------------------------
+
+            if business.business_type in {
+                "COMPANY",
+                "INVESTOR",
+            }:
+
+                schedules = (
+                    EmployeeWorkingSchedule.objects.filter(
+                        business=business,
+                        employee_id__in=assigned_employee_ids,
+                        day_of_week=day_of_week,
+                        slot_type=slot_type,
+                        is_active=True,
+                    )
+                    .select_related("employee")
+                )
+
+            # -------------------------------------------------
+            # INDIVIDUAL BUSINESS
+            # -------------------------------------------------
+
+            else:
+
+                schedules = (
+                    EmployeeWorkingSchedule.objects.filter(
+                        business=business,
+                        owner=business.owner,
+                        employee__isnull=True,
+                        day_of_week=day_of_week,
+                        slot_type=slot_type,
+                        is_active=True,
+                    )
+                    .select_related("owner")
+                )
+
+            # =================================================
+            # CHECK EACH PROVIDER
+            # =================================================
+
+            for schedule in schedules:
+
+                provider = schedule.employee
+
+                # Individual business owner
+                if provider is None:
+                    provider_user = schedule.owner
+                    provider_employee = None
+                else:
+                    provider_user = None
+                    provider_employee = provider
+
+                # -------------------------------------------------
+                # CHECK PROVIDER AVAILABILITY
+                # -------------------------------------------------
+
+                if provider_employee:
+
+                    provider_available = (
+                        ProviderAvailability.objects.filter(
+                            employee=provider_employee,
+                            status="AVAILABLE",
+                        ).exists()
+                    )
+
+                    if not provider_available:
+                        continue
+
+                # -------------------------------------------------
+                # CHECK SERVICE FIT
+                # -------------------------------------------------
+
+                service_start = datetime.combine(
+                    scheduled_date,
+                    schedule.start_time,
+                )
+
+                service_end = (
+                    service_start
+                    + timedelta(minutes=service.duration)
+                )
+
+                slot_end = datetime.combine(
+                    scheduled_date,
+                    schedule.end_time,
+                )
+
+                if service_end > slot_end:
+                    continue
+
+                # -------------------------------------------------
+                # CHECK EXISTING BOOKINGS
+                # -------------------------------------------------
+
+                existing_bookings = (
+                    Booking.objects.filter(
+                        business=business,
+                        scheduled_date=scheduled_date,
+                        status__in=[
+                            BookingStatus.PENDING,
+                            BookingStatus.CONFIRMED,
+                            BookingStatus.IN_PROGRESS,
+                        ],
+                    )
+                    .select_related(
+                        "service",
+                        "employee",
+                    )
+                )
+
+                provider_busy = False
+
+                for booking in existing_bookings:
+
+                    # For employee-based providers,
+                    # only their own bookings matter.
+                    if provider_employee:
+                        if not BookingEmployee.objects.filter(
+                            booking=booking,
+                            employee=provider_employee,
+                        ).exists():
+                            continue
+
+                    # For individual owner, all business bookings
+                    # belong to the same provider.
+                    elif booking.business_id != business.id:
+                        continue
+
+                    existing_start = datetime.combine(
+                        scheduled_date,
+                        booking.scheduled_time,
+                    )
+
+                    existing_end = (
+                        existing_start
+                        + timedelta(
+                            minutes=booking.service.duration
+                        )
+                    )
+
+                    if (
+                        service_start < existing_end
+                        and service_end > existing_start
+                    ):
+                        provider_busy = True
+                        break
+
+                if provider_busy:
+                    continue
+
+                available_employees += 1
+
+            # =================================================
+            # FINAL SLOT RESULT
+            # =================================================
+
+            availability[slot_type] = {
+                "available": available_employees > 0,
+                "available_employees": available_employees,
+                "required_employees": service.required_employees,
+            }
+
+        return availability
 
     # =========================================================
     # STATUS TRANSITIONS
     # =========================================================
 
     @staticmethod
-    def _transition_status(booking, from_statuses, to_status, error_msg):
+    def _transition_status(
+        booking,
+        from_statuses,
+        to_status,
+        error_msg,
+    ):
         if booking.status not in from_statuses:
             raise ValueError(error_msg)
-        
+
         booking.status = to_status
-        booking.save(update_fields=["status"])
+
+        booking.save(
+            update_fields=["status"]
+        )
+
         return booking
 
     @staticmethod
     def cancel_booking(booking):
         """User cancels a booking."""
+
         return BookingService._transition_status(
             booking,
-            [BookingStatus.PENDING, BookingStatus.CONFIRMED],
+            [
+                BookingStatus.PENDING,
+                BookingStatus.CONFIRMED,
+            ],
             BookingStatus.CANCELLED,
-            "Only pending or confirmed bookings can be cancelled."
+            "Only pending or confirmed bookings can be cancelled.",
         )
 
     @staticmethod
     def accept_booking(booking):
         """Business accepts a booking."""
+
         return BookingService._transition_status(
             booking,
-            [BookingStatus.PENDING],
+            [
+                BookingStatus.PENDING,
+            ],
             BookingStatus.CONFIRMED,
-            "Only pending bookings can be accepted."
+            "Only pending bookings can be accepted.",
         )
 
     @staticmethod
     def reject_booking(booking):
         """Business rejects a booking."""
+
         return BookingService._transition_status(
             booking,
-            [BookingStatus.PENDING],
+            [
+                BookingStatus.PENDING,
+            ],
             BookingStatus.REJECTED,
-            "Only pending bookings can be rejected."
+            "Only pending bookings can be rejected.",
         )
 
     @staticmethod
     def start_booking(booking):
         """Business starts the service."""
+
         return BookingService._transition_status(
             booking,
-            [BookingStatus.CONFIRMED],
+            [
+                BookingStatus.CONFIRMED,
+            ],
             BookingStatus.IN_PROGRESS,
-            "Only confirmed bookings can be started."
+            "Only confirmed bookings can be started.",
         )
 
     @staticmethod
     def complete_booking(booking):
         """Business completes the service."""
+
         return BookingService._transition_status(
             booking,
-            [BookingStatus.IN_PROGRESS],
+            [
+                BookingStatus.IN_PROGRESS,
+            ],
             BookingStatus.COMPLETED,
-            "Only in-progress bookings can be completed."
+            "Only in-progress bookings can be completed.",
         )

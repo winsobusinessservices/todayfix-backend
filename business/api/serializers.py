@@ -6,6 +6,9 @@ from ..models import (
     BusinessBankAccount,
     BusinessIdentity,
     BusinessProfile,
+    Employee,
+    ProviderAvailability,
+    EmployeeWorkingSchedule,
 )
 from categories.models import Category
 
@@ -643,4 +646,274 @@ class BusinessProfileSerializer(
             "created_at",
         )
 
-        
+#=============================================================================================================================
+#                       Create Employee Seriaalizer
+#=============================================================================================================================
+class EmployeeCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = (
+            "employee_uuid",
+            "name",
+            "email",
+            "phone",
+            "is_active",
+        )
+        read_only_fields = (
+            "employee_uuid",
+        )
+
+    def validate_phone(self, value):
+        value = value.strip()
+
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "Phone number must contain only digits."
+            )
+
+        if len(value) != 10:
+            raise serializers.ValidationError(
+                "Phone number must contain exactly 10 digits."
+            )
+
+        return value
+
+#========================================================
+#         Employee List Serializer 
+#========================================================
+class EmployeeListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = (
+            "employee_uuid",
+            "name",
+            "email",
+            "phone",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+
+#===========================================================
+#                 Employee Update Serializer
+#===========================================================
+class EmployeeUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = (
+            "name",
+            "email",
+            "phone",
+            "is_active",
+        )
+        extra_kwargs = {
+            "name": {"required": False},
+            "email": {"required": False},
+            "phone": {"required": False},
+            "is_active": {"required": False},
+        }
+
+    def validate_phone(self, value):
+        value = value.strip()
+
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "Phone number must contain only digits."
+            )
+
+        if len(value) != 10:
+            raise serializers.ValidationError(
+                "Phone number must contain exactly 10 digits."
+            )
+
+        return value
+
+#========================================================================================================
+#                               Provider Availability
+#========================================================================================================
+class ProviderAvailabilitySerializer(serializers.ModelSerializer):
+    provider_availability_uuid = serializers.UUIDField(
+        read_only=True
+    )
+
+    employee_uuid = serializers.UUIDField(
+        source="employee.employee_uuid",
+        required=False,
+        read_only=True,
+        allow_null=True,
+    )
+    employee_name = serializers.CharField(
+        source="employee.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    business_uuid = serializers.UUIDField(
+        source="business.business_profile_uuid",
+        read_only=True
+    )
+
+    owner_uuid = serializers.UUIDField(
+        source="owner.uuid",
+        read_only=True
+    )
+
+    
+
+    class Meta:
+        model = ProviderAvailability
+        fields = (
+            "provider_availability_uuid",
+            "business_uuid",
+            "owner_uuid",
+            "employee_uuid",
+            "employee_name",
+            "status",
+            "created_at",
+            "updated_at",
+        )
+
+# =================================================================================================================
+#                           PROVIDER WORKING SCHEDULE
+# =================================================================================================================
+
+class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
+
+    employee_uuid = serializers.UUIDField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
+    
+
+    employee_working_schedule_uuid = serializers.UUIDField(
+        read_only=True,
+    )
+
+    business_uuid = serializers.UUIDField(
+        source="business.business_profile_uuid",
+        read_only=True,
+    )
+
+    owner_uuid = serializers.UUIDField(
+        source="owner.uuid",
+        read_only=True,
+        allow_null=True,
+    )
+
+    employee = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmployeeWorkingSchedule
+
+        fields = (
+            "employee_working_schedule_uuid",
+            "business_uuid",
+            "owner_uuid",
+            "employee_uuid",
+            "employee",
+            "day_of_week",
+            "slot_type",
+            "start_time",
+            "end_time",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+
+        read_only_fields = (
+            "employee_working_schedule_uuid",
+            "business_uuid",
+            "owner_uuid",
+            "employee",
+            "created_at",
+            "updated_at",
+        )
+
+    def get_employee(self, obj):
+        if not obj.employee:
+            return None
+
+        return {
+            "employee_uuid": str(
+                obj.employee.employee_uuid
+            ),
+            "name": obj.employee.name,
+        }
+
+
+    def validate(self, attrs):
+
+        start_time = attrs.get(
+            "start_time",
+            getattr(self.instance, "start_time", None)
+        )
+
+        end_time = attrs.get(
+            "end_time",
+            getattr(self.instance, "end_time", None)
+        )
+
+        if start_time and end_time:
+            if start_time >= end_time:
+                raise serializers.ValidationError({
+                    "end_time": (
+                        "End time must be later than start time."
+                    )
+                })
+
+        day_of_week = attrs.get(
+            "day_of_week",
+            getattr(self.instance, "day_of_week", None)
+        )
+
+        slot_type = attrs.get(
+            "slot_type",
+            getattr(self.instance, "slot_type", None)
+        )
+
+        # Check duplicate schedule
+        if self.instance:
+            duplicate = EmployeeWorkingSchedule.objects.filter(
+                employee=self.instance.employee,
+                day_of_week=day_of_week,
+                slot_type=slot_type,
+            ).exclude(
+                pk=self.instance.pk
+            ).exists()
+
+            if duplicate:
+                raise serializers.ValidationError({
+                    "day_of_week": (
+                        f"{day_of_week} {slot_type} schedule "
+                        "already exists for this employee."
+                    )
+                })
+
+        return attrs
+
+    def create(self, validated_data):
+        employee_uuid = validated_data.pop("employee_uuid", None)
+
+        if employee_uuid:
+            try:
+                employee = Employee.objects.get(
+                    employee_uuid=employee_uuid,
+                    business=validated_data["business"],
+                    is_active=True,
+                )
+            except Employee.DoesNotExist:
+                raise serializers.ValidationError({
+                    "employee_uuid": (
+                        "Employee not found or does not belong "
+                        "to this business."
+                    )
+                })
+
+            validated_data["employee"] = employee
+
+        return EmployeeWorkingSchedule.objects.create(
+            **validated_data
+        )
+    

@@ -1,8 +1,11 @@
 from rest_framework import serializers
 
-from services.models import Service
-from business.models import BusinessProfile
 from categories.models import Category, SubCategory
+
+from services.models import Service, ServiceEmployee
+from business.models import BusinessProfile, Employee
+
+from business.choices import BusinessType
 
 
 # =============================================================
@@ -52,6 +55,7 @@ class ServiceReadSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "duration",
+            "required_employees",
             "business",
             "category",
             "subcategory",
@@ -83,6 +87,11 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    required_employees = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
+
     class Meta:
         model = Service
         fields = (
@@ -90,6 +99,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "duration",
+            "required_employees",
             "cat_uuid",
             "subCat_uuid",
             "is_active",
@@ -101,6 +111,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
                 "Price must be greater than 0."
             )
         return value
+
 
     def validate_cat_uuid(self, value):
         try:
@@ -132,12 +143,55 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        request = self.context.get("request")
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            raise serializers.ValidationError(
+                "No active business profile found."
+            )
+
+        # Individual business → always 1 employee
+        if business.business_type == BusinessType.INDIVIDUAL:
+            if "required_employees" in attrs:
+                raise serializers.ValidationError({
+                    "required_employees": (
+                        "Required employees are not available "
+                        "for Individual businesses. Please upgrade "
+                        "to a Company or Investor business to use "
+                        "multiple employees for a service."
+                    )
+                })
+
+            attrs["required_employees"] = 1
+
+        elif business.business_type in [
+            BusinessType.COMPANY,
+            BusinessType.INVESTOR,
+        ]:
+            if "required_employees" not in attrs:
+                raise serializers.ValidationError({
+                    "required_employees": (
+                        "This field is required for "
+                        "Company and Investor businesses."
+                    )
+                })
+
         # Validate subcategory belongs to category
         subcategory = getattr(
-            self, "_subcategory", None
+            self,
+            "_subcategory",
+            None,
         )
+
         category = getattr(
-            self, "_category", None
+            self,
+            "_category",
+            None,
         )
 
         if (
@@ -171,7 +225,6 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
 # =============================================================
 # SERVICE UPDATE
 # =============================================================
-
 class ServiceUpdateSerializer(serializers.ModelSerializer):
     """Partial update serializer for services."""
 
@@ -186,6 +239,11 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    required_employees = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
+
     class Meta:
         model = Service
         fields = (
@@ -193,6 +251,7 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "duration",
+            "required_employees",
             "cat_uuid",
             "subCat_uuid",
             "is_active",
@@ -205,6 +264,31 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_required_employees(self, value):
+        request = self.context.get("request")
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            raise serializers.ValidationError(
+                "No active business profile found."
+            )
+
+        if business.business_type == BusinessType.INDIVIDUAL:
+            raise serializers.ValidationError({
+                "required_employees": (
+                    "Required employees are not available "
+                    "for Individual businesses. Please upgrade "
+                    "to a Company or Investor business to use "
+                    "multiple employees for a service."
+                )
+            })
+
+        return value
+
     def validate_cat_uuid(self, value):
         try:
             category = Category.objects.get(
@@ -215,6 +299,7 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Category not found."
             )
+
         self._category = category
         return value
 
@@ -232,8 +317,37 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Subcategory not found."
             )
+
         self._subcategory = subcategory
         return value
+
+    def validate(self, attrs):
+        # Validate subcategory belongs to category
+        subcategory = getattr(
+            self,
+            "_subcategory",
+            None,
+        )
+
+        category = getattr(
+            self,
+            "_category",
+            None,
+        )
+
+        if (
+            subcategory
+            and category
+            and subcategory.category != category
+        ):
+            raise serializers.ValidationError({
+                "subCat_uuid": (
+                    "Subcategory does not belong "
+                    "to the selected category."
+                )
+            })
+
+        return attrs
 
     def update(self, instance, validated_data):
         if "cat_uuid" in validated_data:
@@ -243,9 +357,99 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         if "subCat_uuid" in validated_data:
             validated_data.pop("subCat_uuid")
             instance.subcategory = getattr(
-                self, "_subcategory", None
+                self,
+                "_subcategory",
+                None,
             )
 
         return super().update(
-            instance, validated_data
+            instance,
+            validated_data,
+        )
+# =============================================================
+# SERVICE - EMPLOYEE ASSIGNMENT
+# =============================================================
+
+class ServiceEmployeeSerializer(serializers.ModelSerializer):
+    """
+    Assigns an employee to a service.
+    The employee must belong to the same business as the service.
+    """
+
+    service_uuid = serializers.UUIDField(
+        write_only=True,
+    )
+
+    employee_uuid = serializers.UUIDField(
+        write_only=True,
+    )
+
+    class Meta:
+        model = ServiceEmployee
+        fields = (
+            "service_uuid",
+            "employee_uuid",
+        )
+
+    def validate(self, attrs):
+        service_uuid = attrs.pop("service_uuid")
+        employee_uuid = attrs.pop("employee_uuid")
+
+        try:
+            service = Service.objects.get(
+                service_uuid=service_uuid,
+                is_active=True,
+            )
+        except Service.DoesNotExist:
+            raise serializers.ValidationError({
+                "service_uuid": "Service not found."
+            })
+
+        try:
+            employee = Employee.objects.get(
+                employee_uuid=employee_uuid,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            raise serializers.ValidationError({
+                "employee_uuid": "Employee not found."
+            })
+
+        # Employee must belong to the same business
+        if employee.business_id != service.business_id:
+            raise serializers.ValidationError({
+                "employee_uuid": (
+                    "Employee does not belong to the "
+                    "service's business."
+                )
+            })
+
+        attrs["service"] = service
+        attrs["employee"] = employee
+
+        return attrs
+
+class ServiceEmployeeReadSerializer(serializers.ModelSerializer):
+
+    service_uuid = serializers.UUIDField(
+        source="service.service_uuid",
+        read_only=True,
+    )
+
+    employee_uuid = serializers.UUIDField(
+        source="employee.employee_uuid",
+        read_only=True,
+    )
+
+    employee_name = serializers.CharField(
+        source="employee.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = ServiceEmployee
+        fields = (
+            "service_uuid",
+            "employee_uuid",
+            "employee_name",
         )
