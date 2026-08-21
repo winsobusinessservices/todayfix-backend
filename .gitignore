@@ -1,7 +1,6 @@
 
 # Python
 
-
 __pycache__/
 *.py[cod]
 *$py.class
@@ -9,100 +8,54 @@ __pycache__/
 *.pyd
 
 # Virtual Environment
-
-
 venv/
 .venv/
 env/
 ENV/
 
-
 # Django
-
 
 *.log
 db.sqlite3
 db.sqlite3-journal
 *.sqlite
-
 staticfiles/
 
 # Environment / Secrets
-  
 
 .env
 .env.*
 !.env.example
 
-
 # Media / User Uploaded Files
-
 
 media/
 
-
 # IDE / Editors
-
 
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS Files
- 
+# OS
 
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Testing / Coverage
-
+# Coverage / Testing
 
 .coverage
-coverage.xml
 htmlcov/
 .pytest_cache/
 
-
-# Django migrations
-**/migrations/*.py
-!**/migrations/__init__.py
-=======
-
-# Build / Packaging
-
+# Build / Distribution
 
 build/
 dist/
 *.egg-info/
-.eggs/
-
-
-# Type Checking
-
-
-.mypy_cache/
-.pyre/
-
-
-# Temporary Files
-
-
-*.tmp
-*.temp
-*.bak
-
-
-# Django Migrations
-
-
-**/migrations/*.py
-!**/migrations/__init__.py
-
-# Migration cache
-**/migrations/__pycache__/
 
 
 
-
+# Do NOT ignore migration files themselves.
+# Migration files should normally be committed.

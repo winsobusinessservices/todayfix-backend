@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:15
+    container_name: todayfix-db
+    environment:
+      POSTGRES_DB: todayfix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    container_name: todayfix-web
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=${DEBUG}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - DB_NAME=todayfix
+      - DB_USER=postgres
+      - DB_PASSWORD=test
+      - DB_HOST=db
+      - DB_PORT=5432
+      - FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL}
+      - FAST2SMS_API_KEY=${FAST2SMS_API_KEY}
+      - FAST2SMS_OTP_ID=${FAST2SMS_OTP_ID}
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+
+# docker-compose exec web python manage.py makemigrations accounts
+# docker-compose exec web python manage.py makemigrations
+# docker-compose exec web python manage.py migrate

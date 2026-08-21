@@ -142,7 +142,15 @@ class RegisterUserAPIView(CreateAPIView):
             otp = SignupOTPService.create_otp(
                 phone=phone
             )
-            print(f"Generated Signup OTP: {otp}")
+
+            print(
+                f"\n{'=' * 50}\n"
+                f"SIGNUP OTP\n"
+                f"Phone: {phone}\n"
+                f"OTP: {otp}\n"
+                f"Expires: 5 minutes\n"
+                f"{'=' * 50}\n"
+            )
 
             logger.debug(
                 "SIGNUP OTP | Phone: %s | OTP: %s | Expires: 5 min",
@@ -1187,6 +1195,15 @@ class LoginSendOTPAPIView(APIView):
         otp = OTPService.create_otp(
             user=user,
             phone=phone,
+        )
+
+        print(
+            f"\n{'=' * 50}\n"
+            f"LOGIN OTP\n"
+            f"Phone: {phone}\n"
+            f"OTP: {otp}\n"
+            f"Expires: 5 minutes\n"
+            f"{'=' * 50}\n"
         )
 
         # -----------------------------------------------------

@@ -214,6 +214,8 @@ class Address(models.Model):
 
     location = models.CharField(
         max_length=255,
+        null=True,
+        blank=True,
     )
 
     
