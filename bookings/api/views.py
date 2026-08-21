@@ -6,9 +6,10 @@ from rest_framework.generics import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
-from bookings.models import Booking
+from bookings.models import Booking, BookingEmployee
+from business.models import Employee
 from bookings.permissions import (
     IsBookingUser,
     IsBookingBusiness,
@@ -17,7 +18,114 @@ from bookings.services import BookingService
 from .serializers import (
     BookingReadSerializer,
     BookingCreateSerializer,
+    BookingEmployeeAssignSerializer,
+    BookingEmployeeReassignSerializer,
 )
+
+from django.shortcuts import get_object_or_404
+
+from services.models import ServiceEmployee
+
+from django.utils.dateparse import parse_date
+from business.choices import BusinessType
+
+@extend_schema(
+    tags=["Bookings"],
+    summary="Check Booking Slot Availability",
+    description=(
+        "Check Morning, Afternoon and Evening availability "
+        "for a service on a selected future date."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="service_uuid",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description="UUID of the service to check availability for.",
+        ),
+        OpenApiParameter(
+            name="scheduled_date",
+            type=OpenApiTypes.DATE,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description="Future date in YYYY-MM-DD format.",
+        ),
+    ],
+    responses={200: dict},
+)
+class BookingSlotAvailabilityAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+
+        service_uuid = request.query_params.get(
+            "service_uuid"
+        )
+
+        scheduled_date = request.query_params.get(
+            "scheduled_date"
+        )
+
+        if not service_uuid:
+            return Response(
+                {
+                    "success": False,
+                    "message": "service_uuid is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not scheduled_date:
+            return Response(
+                {
+                    "success": False,
+                    "message": "scheduled_date is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        parsed_date = parse_date(scheduled_date)
+
+        if not parsed_date:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "scheduled_date must be in YYYY-MM-DD format."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            availability = BookingService.get_slot_availability(
+                user=request.user,
+                service_uuid=service_uuid,
+                scheduled_date=parsed_date,
+            )
+
+        except ValueError as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(e),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Booking slot availability fetched successfully.",
+                "data": {
+                    "service_uuid": service_uuid,
+                    "scheduled_date": scheduled_date,
+                    "slots": availability,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # =============================================================
@@ -62,6 +170,285 @@ class UserBookingCreateAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+@extend_schema(
+    tags=["Bookings"],
+    summary="Assign Employee to Booking",
+    request=BookingEmployeeAssignSerializer,
+    responses={200: BookingReadSerializer},
+)
+class BusinessBookingAssignEmployeeAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsBookingBusiness]
+
+    def post(self, request, uuid):
+        booking = get_object_or_404(
+            Booking,
+            uuid=uuid,
+        )
+
+        self.check_object_permissions(request, booking)
+
+        if booking.business.business_type == BusinessType.INDIVIDUAL:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Additional employee assignment is "
+                        "not available for individual businesses."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = BookingEmployeeAssignSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        employee_uuid = serializer.validated_data["employee_uuid"]
+
+        employee = get_object_or_404(
+            Employee,
+            employee_uuid=employee_uuid,
+        )
+
+        # Employee must belong to the same business
+        if employee.business_id != booking.business_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Employee does not belong to this business."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Employee must be assigned to this service
+        if not ServiceEmployee.objects.filter(
+            service=booking.service,
+            employee=employee,
+        ).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Employee is not assigned to this service."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Maximum employees = service.required_employees
+        current_count = BookingEmployee.objects.filter(
+            booking=booking
+        ).count()
+
+        if current_count >= booking.service.required_employees:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Maximum required employees already "
+                        "assigned to this booking."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prevent duplicate assignment
+        if BookingEmployee.objects.filter(
+            booking=booking,
+            employee=employee,
+        ).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Employee is already assigned "
+                        "to this booking."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        BookingEmployee.objects.create(
+            booking=booking,
+            employee=employee,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Employee assigned to booking successfully."
+                ),
+                "data": BookingReadSerializer(
+                    booking
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+@extend_schema(
+    tags=["Bookings"],
+    summary="Reassign Employee for Booking",
+    description=(
+        "Replace an employee currently assigned to a booking "
+        "with another employee from the same business."
+    ),
+    request=BookingEmployeeReassignSerializer,
+    responses={200: BookingReadSerializer},
+)
+class BusinessBookingReassignEmployeeAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsBookingBusiness]
+
+    def post(self, request, uuid):
+        booking = get_object_or_404(
+            Booking,
+            uuid=uuid,
+        )
+
+        self.check_object_permissions(request, booking)
+
+        if booking.business.business_type == BusinessType.INDIVIDUAL:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Employee reassignment is not "
+                        "available for individual businesses."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = BookingEmployeeReassignSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        old_employee_uuid = serializer.validated_data[
+            "old_employee_uuid"
+        ]
+
+        new_employee_uuid = serializer.validated_data[
+            "new_employee_uuid"
+        ]
+
+        old_employee = get_object_or_404(
+            Employee,
+            employee_uuid=old_employee_uuid,
+        )
+
+        new_employee = get_object_or_404(
+            Employee,
+            employee_uuid=new_employee_uuid,
+        )
+
+        # Both employees must belong to this business
+        if (
+            old_employee.business_id != booking.business_id
+            or new_employee.business_id != booking.business_id
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Employees must belong to the "
+                        "same business as the booking."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Old employee must actually be assigned
+        assignment = BookingEmployee.objects.filter(
+            booking=booking,
+            employee=old_employee,
+        ).first()
+
+        if not assignment:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "The old employee is not assigned "
+                        "to this booking."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # New employee must be assigned to the service
+        if not ServiceEmployee.objects.filter(
+            service=booking.service,
+            employee=new_employee,
+        ).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "New employee is not assigned "
+                        "to this service."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prevent assigning the same employee
+        if old_employee == new_employee:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "New employee must be different "
+                        "from the old employee."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prevent duplicate assignment
+        if BookingEmployee.objects.filter(
+            booking=booking,
+            employee=new_employee,
+        ).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "New employee is already assigned "
+                        "to this booking."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Replace employee
+        assignment.employee = new_employee
+        assignment.save(
+            update_fields=["employee", "updated_at"]
+        )
+
+        # Keep the primary booking employee in sync
+        if booking.employee_id == old_employee.id:
+            booking.employee = new_employee
+            booking.save(
+                update_fields=["employee", "updated_at"]
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Employee reassigned successfully."
+                ),
+                "data": BookingReadSerializer(
+                    booking
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 @extend_schema(
     tags=["Bookings"],

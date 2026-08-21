@@ -3,10 +3,10 @@ import uuid
 from django.db import models
 from core.models.base import TimeStampedModel
 from accounts.models import CustomUser, Address
-from business.models import BusinessProfile
+from business.models import BusinessProfile, Employee
 from services.models import Service
 
-from .choices import BookingStatus
+from .choices import BookingStatus, BookingSlotType
 
 
 class Booking(TimeStampedModel):
@@ -39,6 +39,14 @@ class Booking(TimeStampedModel):
         related_name="bookings",
     )
 
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        related_name="bookings",
+        null=True,
+        blank=True,
+    )
+
     address = models.ForeignKey(
         Address,
         on_delete=models.PROTECT,
@@ -48,6 +56,11 @@ class Booking(TimeStampedModel):
     scheduled_date = models.DateField()
 
     scheduled_time = models.TimeField()
+
+    slot_type = models.CharField(
+        max_length=10,
+        choices=BookingSlotType.choices,
+    )
 
     price = models.DecimalField(
         max_digits=10,
@@ -77,3 +90,30 @@ class Booking(TimeStampedModel):
 
     def __str__(self):
         return f"Booking {self.uuid} - {self.status}"
+
+class BookingEmployee(TimeStampedModel):
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="booking_employees",
+    )
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        related_name="booking_assignments",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["booking", "employee"],
+                name="unique_booking_employee",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.booking.uuid} - "
+            f"{self.employee.name}"
+        )

@@ -11,6 +11,9 @@ from .views import (
     BusinessBookingRejectAPIView,
     BusinessBookingStartAPIView,
     BusinessBookingCompleteAPIView,
+    BookingSlotAvailabilityAPIView,
+    BusinessBookingAssignEmployeeAPIView,
+    BusinessBookingReassignEmployeeAPIView,
 )
 
 urlpatterns = [
@@ -70,5 +73,23 @@ urlpatterns = [
         "business/<uuid:uuid>/complete/",
         BusinessBookingCompleteAPIView.as_view(),
         name="business-booking-complete"
+    ),
+
+    path(
+        "availability/",
+        BookingSlotAvailabilityAPIView.as_view(),
+        name="booking-slot-availability",
+    ),
+
+    path(
+        "business/<uuid:uuid>/assign-employee/",
+        BusinessBookingAssignEmployeeAPIView.as_view(),
+        name="business-booking-assign-employee",
+    ),
+
+    path(
+        "business/<uuid:uuid>/reassign-employee/",
+        BusinessBookingReassignEmployeeAPIView.as_view(),
+        name="business-booking-reassign-employee",
     ),
 ]

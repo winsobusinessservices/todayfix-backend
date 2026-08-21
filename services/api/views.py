@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 )
 
 from business.models import BusinessProfile
-from services.models import Service
+from services.models import Service, ServiceEmployee
 from services.permissions import (
     IsApprovedBusiness,
     IsServiceOwner,
@@ -30,6 +30,8 @@ from .serializers import (
     ServiceReadSerializer,
     ServiceCreateSerializer,
     ServiceUpdateSerializer,
+    ServiceEmployeeSerializer,
+    ServiceEmployeeReadSerializer,
 )
 
 
@@ -389,3 +391,107 @@ class ServiceSearchAPIView(ListAPIView):
             )
 
         return qs
+
+# =============================================================
+# ASSIGN EMPLOYEE TO SERVICE
+# =============================================================
+
+@extend_schema(
+    tags=["Services"],
+    summary="Assign Employee to Service",
+    description=(
+        "Assign an employee to a service. "
+        "Only the owner of the service can assign employees."
+    ),
+    request=ServiceEmployeeSerializer,
+    responses={201: ServiceEmployeeSerializer},
+)
+class ServiceEmployeeCreateAPIView(CreateAPIView):
+
+    serializer_class = ServiceEmployeeSerializer
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    def create(self, request, *args, **kwargs):
+
+        serializer = self.get_serializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        service = serializer.validated_data["service"]
+        employee = serializer.validated_data["employee"]
+
+        # Service must belong to the logged-in owner
+        if service.business.owner_id != request.user.id:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You can only assign employees "
+                        "to your own services."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        assignment = ServiceEmployee.objects.create(
+            service=service,
+            employee=employee,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Employee assigned to service successfully."
+                ),
+                "data": {
+                    "service_employee_uuid": (
+                        str(assignment.service_employee_uuid)
+                    ),
+                    "service_uuid": (
+                        str(service.service_uuid)
+                    ),
+                    "employee_uuid": (
+                        str(employee.employee_uuid)
+                    ),
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+# =============================================================
+# LIST EMPLOYEES ASSIGNED TO SERVICE
+# =============================================================
+
+@extend_schema(
+    tags=["Services"],
+    summary="List Employees Assigned to Service",
+    description="List employees assigned to a specific service.",
+    responses={200: ServiceEmployeeReadSerializer(many=True)},
+)
+class ServiceEmployeeListAPIView(ListAPIView):
+
+    serializer_class = ServiceEmployeeReadSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    def get_queryset(self):
+        service_uuid = self.kwargs["service_uuid"]
+
+        return ServiceEmployee.objects.filter(
+            service__service_uuid=service_uuid,
+            service__business__owner=self.request.user,
+        ).select_related(
+            "employee",
+            "service",
+        )
