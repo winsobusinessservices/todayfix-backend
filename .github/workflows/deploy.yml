@@ -20,26 +20,107 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           port: ${{ secrets.SERVER_PORT }}
+
           script: |
             set -e
-      
+
             cd /var/www/todayfix
-      
+
+            echo "========================================="
             echo "Pulling latest code..."
+            echo "========================================="
+
             git pull origin main
-      
-            echo "Building containers..."
+
+            echo "========================================="
+            echo "Building and starting containers..."
+            echo "========================================="
+
             docker compose up -d --build
-      
-            echo "Running migrations..."
+
+            echo "========================================="
+            echo "Configuring Docker outbound networking..."
+            echo "========================================="
+
+            # Docker network used by todayfix
+            DOCKER_SUBNET="172.19.0.0/16"
+
+            # Public IP that Docker containers must use
+            OUTBOUND_IP="148.66.156.210"
+
+            # Network interface
+            INTERFACE="eth0"
+
+            # SNAT rule
+            IPTABLES_RULE="-s ${DOCKER_SUBNET} -o ${INTERFACE} -j SNAT --to-source ${OUTBOUND_IP}"
+
+            echo "Removing existing SNAT rules..."
+
+            while sudo iptables -t nat -D POSTROUTING $IPTABLES_RULE 2>/dev/null; do
+              :
+            done
+
+            echo "Adding SNAT rule..."
+
+            sudo iptables -t nat -I POSTROUTING 1 $IPTABLES_RULE
+
+            echo "========================================="
+            echo "Configuring Docker forwarding..."
+            echo "========================================="
+
+            # Allow containers to access the Internet
+            sudo iptables -C DOCKER-USER \
+              -s ${DOCKER_SUBNET} \
+              -o ${INTERFACE} \
+              -j ACCEPT 2>/dev/null || \
+            sudo iptables -I DOCKER-USER 1 \
+              -s ${DOCKER_SUBNET} \
+              -o ${INTERFACE} \
+              -j ACCEPT
+
+            # Allow return traffic from the Internet
+            sudo iptables -C DOCKER-USER \
+              -d ${DOCKER_SUBNET} \
+              -i ${INTERFACE} \
+              -m conntrack --ctstate ESTABLISHED,RELATED \
+              -j ACCEPT 2>/dev/null || \
+            sudo iptables -I DOCKER-USER 1 \
+              -d ${DOCKER_SUBNET} \
+              -i ${INTERFACE} \
+              -m conntrack --ctstate ESTABLISHED,RELATED \
+              -j ACCEPT
+
+            echo "========================================="
+            echo "Saving firewall rules..."
+            echo "========================================="
+
+            sudo netfilter-persistent save
+
+            echo "========================================="
+            echo "Running Django migrations..."
+            echo "========================================="
+
             docker compose exec -T web python manage.py migrate
-      
+
+            echo "========================================="
             echo "Collecting static files..."
+            echo "========================================="
+
             docker compose exec -T web python manage.py collectstatic --noinput
-      
-            echo "Cleaning unused images..."
+
+            echo "========================================="
+            echo "Cleaning unused Docker images..."
+            echo "========================================="
+
             docker image prune -f
-      
-            echo "Deployment successful!"
-      
+
+            echo "========================================="
+            echo "Verifying Docker containers..."
+            echo "========================================="
+
             docker compose ps
+
+            echo "========================================="
+            echo "Deployment successful!"
+            echo "Docker outbound IP: ${OUTBOUND_IP}"
+            echo "========================================="
