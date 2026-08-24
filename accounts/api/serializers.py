@@ -408,24 +408,78 @@ class UpdateProfileSerializer(
             "profileImage",
         )
 
+    # =====================================================
+    # PHONE VALIDATION
+    # =====================================================
+
     def validate_phone(self, value):
 
         if value == "":
             return self.instance.phone
 
-        pattern = r'^[6-9]\d{9}$'
+        value = str(value).strip()
 
-        if value and not re.match(
-            pattern,
+        # -------------------------------------------------
+        # NORMALIZE PHONE NUMBER
+        # -------------------------------------------------
+
+        # +919876543210 -> 9876543210
+        if value.startswith("+91"):
+            value = value[3:]
+
+        # 919876543210 -> 9876543210
+        elif (
+            value.startswith("91")
+            and len(value) == 12
+        ):
+            value = value[2:]
+
+        # -------------------------------------------------
+        # VALIDATE INDIAN MOBILE NUMBER
+        # -------------------------------------------------
+
+        if not re.fullmatch(
+            r"[6-9]\d{9}",
             value
         ):
-
             raise serializers.ValidationError(
                 "Phone number must be exactly "
                 "10 digits and start with 6, 7, 8, or 9."
             )
 
+        # -------------------------------------------------
+        # CHECK DUPLICATE ONLY IN CustomUser
+        # -------------------------------------------------
+
+        if CustomUser.objects.filter(
+            phone=value
+        ).exclude(
+            pk=self.instance.pk
+        ).exists():
+
+            raise serializers.ValidationError(
+                "Phone number already exists."
+            )
+
+        # -------------------------------------------------
+        # PROTECT AGAINST OLD +91 STORED VALUES
+        # -------------------------------------------------
+
+        if CustomUser.objects.filter(
+            phone=f"+91{value}"
+        ).exclude(
+            pk=self.instance.pk
+        ).exists():
+
+            raise serializers.ValidationError(
+                "Phone number already exists."
+            )
+
         return value
+
+    # =====================================================
+    # UPDATE
+    # =====================================================
 
     def update(
         self,
@@ -450,7 +504,6 @@ class UpdateProfileSerializer(
         instance.save()
 
         return instance
-
 
 # =========================================================
 # ADDRESS
@@ -1208,10 +1261,92 @@ class SignupSendOTPSerializer(
 # =========================================================
 
 class SignupVerifyOTPSerializer(serializers.Serializer):
+
+    # -----------------------------------------------------
+    # PHONE
+    # -----------------------------------------------------
+    # The phone number is now required during OTP
+    # verification so that the OTP can be matched against
+    # the correct signup session/registration.
+    # -----------------------------------------------------
+
+    phone = serializers.CharField(
+        max_length=15
+    )
+
+    # -----------------------------------------------------
+    # OTP
+    # -----------------------------------------------------
+
     otp = serializers.CharField(
         max_length=6,
         min_length=6
     )
+
+    # -----------------------------------------------------
+    # PHONE VALIDATION + NORMALIZATION
+    # -----------------------------------------------------
+    # Same normalization used by SignupSendOTPSerializer:
+    #
+    # +919876543210 -> 9876543210
+    # 919876543210  -> 9876543210
+    # 9876543210    -> 9876543210
+    # -----------------------------------------------------
+
+    def validate_phone(
+        self,
+        value
+    ):
+
+        value = str(value).strip()
+
+        if value.startswith("+91"):
+
+            value = value[3:]
+
+        elif (
+            value.startswith("91")
+            and len(value) == 12
+        ):
+
+            value = value[2:]
+
+        # Validate Indian mobile number
+        if not re.fullmatch(
+            r"[6-9]\d{9}",
+            value
+        ):
+
+            raise serializers.ValidationError(
+                "Enter a valid 10-digit Indian mobile number."
+            )
+
+        return value
+
+    # -----------------------------------------------------
+    # OTP VALIDATION
+    # -----------------------------------------------------
+
+    def validate_otp(
+        self,
+        value
+    ):
+
+        value = str(value).strip()
+
+        if not value.isdigit():
+
+            raise serializers.ValidationError(
+                "OTP must contain only numbers."
+            )
+
+        if len(value) != 6:
+
+            raise serializers.ValidationError(
+                "OTP must be exactly 6 digits."
+            )
+
+        return value
 
 
 # =========================================================

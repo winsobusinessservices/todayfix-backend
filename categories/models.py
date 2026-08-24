@@ -114,6 +114,12 @@ class SubCategory(TimeStampedModel):
         default="",
     )
 
+    image = models.ImageField(
+        upload_to="subcategories/",
+        blank=True,
+        null=True,
+    )
+
     is_active = models.BooleanField(
         default=True,
         db_index=True,

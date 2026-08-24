@@ -20,7 +20,9 @@ from .views import (
     EmployeeWorkingScheduleUpdateAPIView,
     EmployeeWorkingScheduleListAPIView,
     EmployeeWorkingScheduleCreateAPIView,
-    BusinessApplicationDocumentAPIView,
+    BusinessApplicationPendingListAPIView,
+    BusinessApplicationAcceptedListAPIView,
+    BusinessApplicationRejectedListAPIView,
 )
 
 
@@ -48,6 +50,8 @@ urlpatterns = [
         name="business-application-detail",
     ),
 
+    
+
     # =====================================================
     # ADMIN - BUSINESS APPLICATION
     # =====================================================
@@ -70,6 +74,23 @@ urlpatterns = [
         name="admin-business-application-reject",
     ),
 
+    path(
+        "admin/applications/accepted/",
+        BusinessApplicationAcceptedListAPIView.as_view(),
+        name="admin-business-application-accepted-list",
+    ),
+
+    path(
+        "admin/applications/rejected/",
+        BusinessApplicationRejectedListAPIView.as_view(),
+        name="admin-business-application-rejected-list",
+    ),
+
+    path(
+        "admin/applications/pending/",
+        BusinessApplicationPendingListAPIView.as_view(),
+        name="admin-business-application-pending-list",
+    ),
     # =====================================================
     # BUSINESS PROFILE
     # =====================================================
@@ -110,11 +131,7 @@ urlpatterns = [
         name="employee-delete",
     ),
 
-    path(
-        "applications/<uuid:business_application_uuid>/documents/<str:document_type>/",
-        BusinessApplicationDocumentAPIView.as_view(),
-        name="business-application-document",
-    ),
+    
     # =====================================================
     # PROVIDER AVAILABILITY
     # =====================================================

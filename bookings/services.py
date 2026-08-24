@@ -28,6 +28,42 @@ class BookingService:
     ):
         """
         Create a scheduled booking and assign an available provider.
+
+        CONCURRENCY SAFETY:
+        -------------------
+        The provider's EmployeeWorkingSchedule row is used as the
+        stable lock row.
+
+        Why?
+
+        Locking existing Booking rows alone is NOT sufficient because
+        there may be zero existing bookings for the requested provider
+        and slot. In that case there would be nothing to lock.
+
+        Therefore we lock the provider schedule first. Because the
+        schedule row already exists, concurrent booking requests for
+        the same provider/slot are serialized.
+
+        The flow becomes:
+
+            lock provider schedule
+                    ↓
+            check existing bookings
+                    ↓
+            create booking
+                    ↓
+            transaction commits
+                    ↓
+            second request gets the lock
+                    ↓
+            second request sees the new booking
+                    ↓
+            second request returns "No provider available"
+
+        IMPORTANT:
+        select_for_update() requires a database backend that supports
+        row-level locking, such as PostgreSQL or MySQL/InnoDB.
+        SQLite does NOT provide real SELECT FOR UPDATE row locking.
         """
 
         # =====================================================
@@ -121,6 +157,7 @@ class BookingService:
                     is_active=True,
                 )
                 .select_related("owner")
+                .order_by("pk")
             )
 
         else:
@@ -148,7 +185,38 @@ class BookingService:
                     is_active=True,
                 )
                 .select_related("employee")
+                .order_by("pk")
             )
+
+        # =====================================================
+        # IMPORTANT CONCURRENCY LOCK
+        # =====================================================
+        #
+        # THIS IS THE MAIN FIX.
+        #
+        # We lock the schedule rows BEFORE checking bookings.
+        #
+        # Why not only lock Booking rows?
+        #
+        # Because if there are currently zero bookings, a Booking
+        # queryset has zero rows and therefore nothing to lock.
+        #
+        # EmployeeWorkingSchedule is a stable row representing the
+        # provider's availability for this day/slot, so it gives us
+        # something that BOTH concurrent requests can lock.
+        #
+        # On PostgreSQL/MySQL, if another transaction already holds
+        # one of these locks, this query waits until that transaction
+        # commits or rolls back.
+        #
+        # order_by("pk") ensures concurrent requests acquire multiple
+        # provider locks in the same deterministic order, reducing
+        # deadlock risk.
+        #
+        locked_schedules = list(
+            schedules
+            .select_for_update()
+        )
 
         # =====================================================
         # FIND AVAILABLE PROVIDER
@@ -157,7 +225,7 @@ class BookingService:
         selected_schedule = None
         selected_employee = None
 
-        for schedule in schedules:
+        for schedule in locked_schedules:
 
             slot_start = datetime.combine(
                 scheduled_date,
@@ -187,7 +255,17 @@ class BookingService:
             # =================================================
             # CHECK EXISTING BOOKINGS
             # =================================================
-
+            #
+            # The schedule row is already locked above.
+            #
+            # We additionally lock existing matching booking rows.
+            #
+            # This is NOT the primary concurrency protection because
+            # there may be no booking rows.
+            #
+            # The schedule lock handles the "zero existing bookings"
+            # race condition.
+            #
             existing_bookings = (
                 Booking.objects
                 .filter(
@@ -203,6 +281,7 @@ class BookingService:
                     "service",
                     "employee",
                 )
+                .order_by("pk")
             )
 
             provider_available = True
@@ -212,10 +291,12 @@ class BookingService:
                 # -------------------------------------------------
                 # COMPANY / INVESTOR
                 # -------------------------------------------------
+                #
                 # Only bookings assigned to this employee
                 # should block this employee.
-
+                #
                 if provider_employee:
+
                     if not BookingEmployee.objects.filter(
                         booking=existing_booking,
                         employee=provider_employee,
@@ -225,10 +306,11 @@ class BookingService:
                 # -------------------------------------------------
                 # INDIVIDUAL
                 # -------------------------------------------------
+                #
                 # Individual business has no Employee record.
-                # Therefore all active bookings for that business
+                # Therefore all active bookings for this business
                 # belong to the owner and block the owner.
-
+                #
                 existing_start = datetime.combine(
                     scheduled_date,
                     existing_booking.scheduled_time,
@@ -256,6 +338,10 @@ class BookingService:
                     provider_available = False
                     break
 
+            # -------------------------------------------------
+            # PROVIDER IS BUSY
+            # -------------------------------------------------
+
             if not provider_available:
                 continue
 
@@ -275,7 +361,8 @@ class BookingService:
         if not selected_schedule:
             raise ValueError(
                 "No provider is available for the selected "
-                "date and slot."
+                "date and slot. The slot may have just been "
+                "booked by another customer."
             )
 
         # =====================================================
@@ -287,7 +374,14 @@ class BookingService:
         # =====================================================
         # CREATE BOOKING
         # =====================================================
-
+        #
+        # IMPORTANT:
+        # The schedule lock is still held here.
+        #
+        # Therefore another concurrent create_booking() request
+        # for the same provider cannot pass its availability check
+        # until this transaction commits.
+        #
         booking = Booking.objects.create(
             user=user,
             service=service,
@@ -302,11 +396,29 @@ class BookingService:
             notes=notes,
         )
 
+        # =====================================================
+        # CREATE EMPLOYEE ASSIGNMENT
+        # =====================================================
+
         if selected_employee:
+
             BookingEmployee.objects.create(
                 booking=booking,
                 employee=selected_employee,
             )
+
+        # =====================================================
+        # TRANSACTION COMMIT
+        # =====================================================
+        #
+        # When this method returns successfully, the outer
+        # transaction.atomic() will commit and release the
+        # schedule lock.
+        #
+        # A waiting concurrent request can then acquire the lock
+        # and re-check the bookings, where it will now see the
+        # booking created above.
+        #
 
         return booking
 
