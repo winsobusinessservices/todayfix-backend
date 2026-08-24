@@ -19,5 +19,5 @@ redis==8.1.0
 gunicorn==26.0.0
 python-dotenv
 
-google-auth==2.37.1
-requests==2.32.6
+google-auth
+requests
