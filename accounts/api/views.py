@@ -1,6 +1,5 @@
 import logging
 
-from accounts.api.serializers import SignupVerifyOTPSerializer
 from accounts.choices import UserRole
 from datetime import timedelta
 
@@ -54,6 +53,7 @@ from .serializers import (
     SendOTPSerializer,
     VerifyOTPSerializer,
     LoginSendOTPSerializer,
+    SignupVerifyOTPSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -1067,12 +1067,6 @@ class UnifiedPasswordResetView(APIView):
         )
 
 
-
-
-
-
-
-
 # =========================================================
 # SIGNUP OTP - VERIFY
 # =========================================================
@@ -1107,13 +1101,31 @@ class SignupVerifyOTPAPIView(APIView):
             raise_exception=True
         )
 
-        
+        # -------------------------------------------------
+        # Get BOTH phone and OTP from validated request data.
+        #
+        # phone is normalized by SignupVerifyOTPSerializer,
+        # so the service receives the canonical 10-digit
+        # Indian phone number.
+        # -------------------------------------------------
+
+        phone = serializer.validated_data[
+            "phone"
+        ]
 
         otp = serializer.validated_data[
             "otp"
         ]
 
+        # -------------------------------------------------
+        # Verify signup OTP against the SAME phone number.
+        #
+        # This prevents an OTP belonging to another phone
+        # from being selected.
+        # -------------------------------------------------
+
         user = AuthService.verify_phone_registration(
+            phone=phone,
             otp=otp,
         )
 

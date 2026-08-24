@@ -159,7 +159,7 @@ AUTH_USER_MODEL = "accounts.CustomUser"
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Kolkata"
 
 USE_I18N = True
 
@@ -181,6 +181,13 @@ STATICFILES_DIRS = [
 # Used by `python manage.py collectstatic`
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# ============================================================
+# MEDIA / FILE STORAGE
+# ============================================================
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "temp"
+
 
 # ============================================================
 # REST FRAMEWORK
@@ -189,6 +196,9 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS":
         "drf_spectacular.openapi.AutoSchema",
+
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
 
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "accounts.authentication.CustomJWTAuthentication",

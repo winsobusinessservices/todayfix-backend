@@ -26,6 +26,7 @@ class SubCategorySerializer(serializers.ModelSerializer):
             "slug",
             "description",
             "icon",
+            "image",
             "is_active",
             "created_at",
             "updated_at",

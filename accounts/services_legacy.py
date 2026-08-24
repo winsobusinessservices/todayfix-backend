@@ -302,15 +302,38 @@ class AuthService:
     # =========================================================
     # PHONE OTP REGISTRATION
     # =========================================================
+    # =========================================================
+    # PHONE OTP REGISTRATION
+    # =========================================================
 
     @staticmethod
     def verify_phone_registration(
+        phone,
         otp,
     ):
+
+        # -----------------------------------------------------
+        # IMPORTANT FIX:
+        #
+        # Previously the query looked for the latest unused OTP
+        # across the ENTIRE SignupOTPVerification table.
+        #
+        # That meant:
+        #
+        # User A -> 111111
+        # User B -> 222222
+        #
+        # If User A verified while User B's OTP was the newest,
+        # User A could accidentally get User B's OTP record.
+        #
+        # Now we explicitly restrict the lookup to the phone
+        # supplied by the verification request.
+        # -----------------------------------------------------
 
         otp_record = (
             SignupOTPVerification.objects
             .filter(
+                phone=phone,
                 is_used=False,
             )
             .order_by("-created_at")
@@ -318,11 +341,19 @@ class AuthService:
         )
 
         if not otp_record:
+
             raise ValidationError({
-                "otp": "OTP not found. Please request a new OTP."
+                "otp": (
+                    "OTP not found. "
+                    "Please request a new OTP."
+                )
             })
 
-        phone = otp_record.phone
+        # -----------------------------------------------------
+        # The phone is now taken from the validated request,
+        # rather than being discovered from whichever OTP happens
+        # to be the newest in the database.
+        # -----------------------------------------------------
 
         success, message = SignupOTPService.verify_otp(
             phone=phone,
@@ -330,9 +361,15 @@ class AuthService:
         )
 
         if not success:
+
             raise ValidationError({
                 "otp": message
             })
+
+        # -----------------------------------------------------
+        # Find the pending registration belonging to the SAME
+        # phone number that was used for OTP verification.
+        # -----------------------------------------------------
 
         try:
 
@@ -345,6 +382,7 @@ class AuthService:
                 .order_by("-created_at")
                 .first()
             )
+
         except PendingRegistration.DoesNotExist:
 
             pending_registration = None
@@ -357,8 +395,6 @@ class AuthService:
                     "for this phone number."
                 )
             })
-
-        
 
         # -----------------------------------------------------
         # Check phone uniqueness again
@@ -424,7 +460,7 @@ class AuthService:
         pending_registration.delete()
 
         return user
-
+    
     # =========================================================
     # RESET PASSWORD
     # =========================================================

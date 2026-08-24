@@ -2,7 +2,7 @@ from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,11 +13,15 @@ from .serializers import (
     SubCategorySerializer,
 )
 
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from accounts.choices import UserRole
+
 
 class CategoryListCreateAPIView(APIView):
     """
     GET:
-        List active categories.
+        List categories.
 
     POST:
         ADMIN only - create category.
@@ -31,7 +35,7 @@ class CategoryListCreateAPIView(APIView):
             ]
 
         return [
-            IsAuthenticated(),
+            AllowAny(),
         ]
 
     @extend_schema(
@@ -43,9 +47,14 @@ class CategoryListCreateAPIView(APIView):
 
         categories = (
             Category.objects
-            .filter(is_active=True)
             .prefetch_related("subcategories")
         )
+
+        # Admins can see both active and inactive categories
+        if getattr(request.user, "role", None) != UserRole.ADMIN:
+            categories = categories.filter(
+                is_active=True
+            )
 
         serializer = CategorySerializer(
             categories,
@@ -104,7 +113,7 @@ class CategoryDetailAPIView(APIView):
             ]
 
         return [
-            IsAuthenticated(),
+            AllowAny(),
         ]
 
     @extend_schema(
@@ -119,8 +128,20 @@ class CategoryDetailAPIView(APIView):
                 "subcategories"
             ),
             cat_uuid=cat_uuid,
-            is_active=True,
         )
+
+        # Non-admins can only view active categories
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not category.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Category not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         serializer = CategorySerializer(category)
 
@@ -166,11 +187,16 @@ class CategoryDetailAPIView(APIView):
 class SubCategoryListCreateAPIView(APIView):
     """
     GET:
-        List active subcategories under a category.
+        List subcategories under a category.
 
     POST:
         ADMIN only - create subcategory.
     """
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+    ]
 
     def get_permissions(self):
 
@@ -181,7 +207,7 @@ class SubCategoryListCreateAPIView(APIView):
             ]
 
         return [
-            IsAuthenticated(),
+            AllowAny(),
         ]
 
     @extend_schema(
@@ -194,14 +220,25 @@ class SubCategoryListCreateAPIView(APIView):
         category = get_object_or_404(
             Category,
             cat_uuid=cat_uuid,
-            is_active=True,
         )
+
+        # Non-admins can only access an active category
+        if getattr(request.user, "role", None) != UserRole.ADMIN:
+            category = get_object_or_404(
+                Category,
+                cat_uuid=cat_uuid,
+                is_active=True,
+            )
 
         subcategories = SubCategory.objects.filter(
             category=category,
-            is_active=True,
         )
 
+        # Non-admins can only see active subcategories
+        if getattr(request.user, "role", None) != UserRole.ADMIN:
+            subcategories = subcategories.filter(
+                is_active=True
+            )
         serializer = SubCategorySerializer(
             subcategories,
             many=True,
@@ -254,6 +291,11 @@ class SubCategoryListCreateAPIView(APIView):
 
 class SubCategoryDetailAPIView(APIView):
 
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+    ]
+
     def get_permissions(self):
 
         if self.request.method in ["PATCH", "PUT", "DELETE"]:
@@ -263,7 +305,7 @@ class SubCategoryDetailAPIView(APIView):
             ]
 
         return [
-            IsAuthenticated(),
+            AllowAny(),
         ]
 
     @extend_schema(
@@ -278,8 +320,34 @@ class SubCategoryDetailAPIView(APIView):
                 "category"
             ),
             subCat_uuid=subCat_uuid,
-            is_active=True,
         )
+
+        # Non-admins can only view active subcategories
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Non-admins also cannot view a subcategory
+        # belonging to an inactive category
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.category.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         serializer = SubCategorySerializer(
             subcategory

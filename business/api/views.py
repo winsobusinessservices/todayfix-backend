@@ -208,7 +208,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         pan_document=(
-                            pan_document.read()
+                            pan_document
                             if pan_document
                             else None
                         ),
@@ -229,7 +229,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         aadhaar_document=(
-                            aadhaar_document.read()
+                            aadhaar_document
                             if aadhaar_document
                             else None
                         ),
@@ -270,7 +270,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         internal_store_photo=(
-                            internal_store_photo.read()
+                            internal_store_photo
                             if internal_store_photo
                             else None
                         ),
@@ -286,7 +286,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         external_store_photo=(
-                            external_store_photo.read()
+                            external_store_photo
                             if external_store_photo
                             else None
                         ),
@@ -302,7 +302,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         cancelled_gst_bill_book_photo=(
-                            cancelled_gst_bill_book_photo.read()
+                            cancelled_gst_bill_book_photo
                             if cancelled_gst_bill_book_photo
                             else None
                         ),
@@ -318,7 +318,7 @@ class BusinessApplicationCreateAPIView(APIView):
                         ),
 
                         logo=(
-                            logo.read()
+                            logo
                             if logo
                             else None
                         ),
@@ -406,124 +406,7 @@ class BusinessApplicationCreateAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-#
-@extend_schema(
-    tags=["Business Administration"],
-)
-class BusinessApplicationDocumentAPIView(APIView):
 
-    permission_classes = [
-        IsAuthenticated,
-    ]
-
-    def get(
-        self,
-        request,
-        business_application_uuid,
-        document_type,
-    ):
-        try:
-            application = BusinessApplication.objects.get(
-                business_application_uuid=business_application_uuid
-            )
-        except BusinessApplication.DoesNotExist:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Business application not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if (
-            application.user != request.user
-            and getattr(request.user, "role", None) != UserRole.ADMIN
-        ):
-            return Response(
-                {
-                    "success": False,
-                    "message": "You do not have permission to access this document.",
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            identity = application.identity
-        except BusinessIdentity.DoesNotExist:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Business identity not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        document_map = {
-            "pan": (
-                identity.pan_document,
-                identity.pan_document_name,
-                identity.pan_document_type,
-            ),
-            "aadhaar": (
-                identity.aadhaar_document,
-                identity.aadhaar_document_name,
-                identity.aadhaar_document_type,
-            ),
-            "internal-store": (
-                identity.internal_store_photo,
-                identity.internal_store_name,
-                identity.internal_store_type,
-            ),
-            "external-store": (
-                identity.external_store_photo,
-                identity.external_store_name,
-                identity.external_store_type,
-            ),
-            "cancelled-gst": (
-                identity.cancelled_gst_bill_book_photo,
-                identity.cancelled_gst_bill_book_name,
-                identity.cancelled_gst_bill_book_type,
-            ),
-            "logo": (
-                identity.logo,
-                identity.logo_name,
-                identity.logo_type,
-            ),
-        }
-
-        if document_type not in document_map:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Invalid document type.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        document, file_name, content_type = document_map[
-            document_type
-        ]
-
-        if not document:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Document not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        response = HttpResponse(
-            document,
-            content_type=content_type
-            or "application/octet-stream",
-        )
-
-        response[
-            "Content-Disposition"
-        ] = f'inline; filename="{file_name}"'
-
-        return response
 
 
 # =========================================================
@@ -550,6 +433,153 @@ class BusinessApplicationListAPIView(APIView):
             BusinessApplication.objects
             .filter(
                 user=request.user
+            )
+            .select_related(
+                "user",
+                "reviewed_by",
+            )
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            )
+        )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                applications,
+                many=True,
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+# =========================================================
+# USER
+# LIST MY PENDING APPLICATIONS
+# =========================================================
+
+class BusinessApplicationPendingListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List pending business applications",
+        responses=BusinessApplicationFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        applications = (
+            BusinessApplication.objects
+            .filter(
+                status=BusinessApplicationStatus.PENDING,
+            )
+            .select_related(
+                "user",
+                "reviewed_by",
+            )
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            )
+        )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                applications,
+                many=True,
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+# =========================================================
+# ADMIN
+# LIST ACCEPTED BUSINESS APPLICATIONS
+# =========================================================
+
+class BusinessApplicationAcceptedListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List accepted business applications",
+        responses=BusinessApplicationFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        applications = (
+            BusinessApplication.objects
+            .filter(
+                status=BusinessApplicationStatus.APPROVED,
+            )
+            .select_related(
+                "user",
+                "reviewed_by",
+            )
+            .prefetch_related(
+                "identity",
+                "bank_account",
+            )
+        )
+
+        serializer = (
+            BusinessApplicationFullSerializer(
+                applications,
+                many=True,
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+# =========================================================
+# ADMIN
+# LIST REJECTED BUSINESS APPLICATIONS
+# =========================================================
+
+class BusinessApplicationRejectedListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List rejected business applications",
+        responses=BusinessApplicationFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        applications = (
+            BusinessApplication.objects
+            .filter(
+                status=BusinessApplicationStatus.REJECTED,
             )
             .select_related(
                 "user",

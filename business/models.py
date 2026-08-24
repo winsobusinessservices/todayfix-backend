@@ -158,7 +158,8 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    pan_document = models.BinaryField(
+    pan_document = models.FileField(
+        upload_to="business_applications/pan/",
         null=True,
         blank=True,
     )
@@ -185,7 +186,8 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    aadhaar_document = models.BinaryField(
+    aadhaar_document = models.FileField(
+        upload_to="business_applications/aadhaar/",
         null=True,
         blank=True,
     )
@@ -240,7 +242,8 @@ class BusinessIdentity(TimeStampedModel):
     # STORE PHOTOS
     # =====================================================
 
-    internal_store_photo  = models.BinaryField(
+    internal_store_photo  = models.FileField(
+        upload_to="business_applications/store/internal/",
         null=True,
         blank=True,
     )
@@ -257,7 +260,8 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    external_store_photo = models.BinaryField(
+    external_store_photo = models.FileField(
+        upload_to="business_applications/store/external/",
         null=True,
         blank=True,
     )
@@ -274,7 +278,8 @@ class BusinessIdentity(TimeStampedModel):
         default="",
     )
 
-    cancelled_gst_bill_book_photo = models.BinaryField(
+    cancelled_gst_bill_book_photo = models.FileField(
+        upload_to="business_applications/gst_bill_book/",
         null=True,
         blank=True,
     )
@@ -295,7 +300,8 @@ class BusinessIdentity(TimeStampedModel):
     # OPTIONAL
     # =====================================================
 
-    logo = models.BinaryField(
+    logo = models.FileField(
+        upload_to="business_applications/logo/",
         null=True,
         blank=True,
     )

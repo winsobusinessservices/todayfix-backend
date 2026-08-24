@@ -125,17 +125,17 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     # STORE PHOTOS
     # =====================================================
 
-    internal_store_photo = serializers.ImageField(
+    internal_store_photo = serializers.FileField(
         required=False,
         allow_null=True,
     )
 
-    external_store_photo = serializers.ImageField(
+    external_store_photo = serializers.FileField(
         required=False,
         allow_null=True,
     )
 
-    cancelled_gst_bill_book_photo = serializers.ImageField(
+    cancelled_gst_bill_book_photo = serializers.FileField(
         required=False,
         allow_null=True,
     )
@@ -144,7 +144,7 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     # OPTIONAL
     # =====================================================
 
-    logo = serializers.ImageField(
+    logo = serializers.FileField(
         required=False,
         allow_null=True,
     )
@@ -523,15 +523,15 @@ class BusinessApplicationFullSerializer(
             "business_identity_uuid": str(identity.business_identity_uuid),
             "pan_number": identity.pan_number,
             "pan_document": (
-                identity.pan_document.url
+                True
                 if identity.pan_document
-                else None
+                else False
             ),
             "aadhaar_number": identity.aadhaar_number,
             "aadhaar_document": (
-                identity.aadhaar_document.url
+                True
                 if identity.aadhaar_document
-                else None
+                else False
             ),
             "gst_number": identity.gst_number,
             "udyam_number": identity.udyam_number,
@@ -545,24 +545,24 @@ class BusinessApplicationFullSerializer(
                 identity.food_license_number
             ),
             "internal_store_photo": (
-                identity.internal_store_photo.url
+                True
                 if identity.internal_store_photo
-                else None
+                else False
             ),
             "external_store_photo": (
-                identity.external_store_photo.url
+                True
                 if identity.external_store_photo
-                else None
+                else False
             ),
             "cancelled_gst_bill_book_photo": (
-                identity.cancelled_gst_bill_book_photo.url
+                True
                 if identity.cancelled_gst_bill_book_photo
-                else None
+                else False
             ),
             "logo": (
-                identity.logo.url
+                True
                 if identity.logo
-                else None
+                else False
             ),
             "website": identity.website,
             "created_at": identity.created_at,
@@ -754,8 +754,9 @@ class ProviderAvailabilitySerializer(serializers.ModelSerializer):
     )
 
     owner_uuid = serializers.UUIDField(
-        source="owner.uuid",
-        read_only=True
+        source="owner.user_uuid",
+        read_only=True,
+        allow_null=True,
     )
 
     
@@ -797,7 +798,7 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
     )
 
     owner_uuid = serializers.UUIDField(
-        source="owner.uuid",
+        source="owner.user_uuid",
         read_only=True,
         allow_null=True,
     )

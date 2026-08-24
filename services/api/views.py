@@ -26,6 +26,8 @@ from services.permissions import (
     IsServiceOwner,
 )
 
+from accounts.choices import UserRole
+
 from .serializers import (
     ServiceReadSerializer,
     ServiceCreateSerializer,
@@ -49,22 +51,32 @@ from .serializers import (
     ),
     responses={200: ServiceReadSerializer(many=True)},
 )
+
 class ServiceListAPIView(ListAPIView):
 
     serializer_class = ServiceReadSerializer
     permission_classes = [AllowAny]
-    authentication_classes = []
 
     def get_queryset(self):
-        return (
+        qs = (
             Service.objects
-            .filter(is_active=True)
             .select_related(
                 "business",
                 "category",
                 "subcategory",
             )
         )
+
+        # Admins can see both active and inactive services
+        if (
+            self.request.user.is_authenticated
+            and getattr(self.request.user, "role", None)
+            == UserRole.ADMIN
+        ):
+            return qs
+
+        # Everyone else can see only active services
+        return qs.filter(is_active=True)
 
 
 # =============================================================
@@ -282,9 +294,23 @@ class ServiceDeleteAPIView(APIView):
             type=str,
             required=False,
         ),
+
+        OpenApiParameter(
+            name="category_slug",
+            description="Category slug",
+            type=str,
+            required=False,
+        ),
+
         OpenApiParameter(
             name="subcategory",
             description="Subcategory UUID",
+            type=str,
+            required=False,
+        ),
+        OpenApiParameter(
+            name="subcategory_slug",
+            description="Subcategory slug",
             type=str,
             required=False,
         ),
@@ -325,7 +351,7 @@ class ServiceSearchAPIView(ListAPIView):
 
     serializer_class = ServiceReadSerializer
     permission_classes = [AllowAny]
-    authentication_classes = []
+    
 
     def get_queryset(self):
         qs = (
@@ -335,8 +361,18 @@ class ServiceSearchAPIView(ListAPIView):
                 "category",
                 "subcategory",
             )
-            .filter(is_active=True)
         )
+
+        # Admins can see both active and inactive services
+        if not (
+            self.request.user.is_authenticated
+            and getattr(
+                self.request.user,
+                "role",
+                None,
+            ) == UserRole.ADMIN
+        ):
+            qs = qs.filter(is_active=True)
 
         params = self.request.query_params
 
@@ -347,11 +383,23 @@ class ServiceSearchAPIView(ListAPIView):
                 category__cat_uuid=category,
             )
 
+        category_slug = params.get("category_slug")
+        if category_slug:
+            qs = qs.filter(
+                category__slug=category_slug,
+            )
+
         # Subcategory
         subcategory = params.get("subcategory")
         if subcategory:
             qs = qs.filter(
                 subcategory__subCat_uuid=subcategory,
+            )
+
+        subcategory_slug = params.get("subcategory_slug")
+        if subcategory_slug:
+            qs = qs.filter(
+                subcategory__slug=subcategory_slug,
             )
 
         # Business
@@ -374,13 +422,24 @@ class ServiceSearchAPIView(ListAPIView):
                 price__lte=max_price,
             )
 
-        # Active status override
+        # Active status filter
         is_active = params.get("is_active")
+
         if is_active is not None:
-            if is_active.lower() == "false":
-                qs = Service.objects.filter(
-                    is_active=False,
-                )
+            if is_active.lower() == "true":
+                qs = qs.filter(is_active=True)
+
+            elif (
+                is_active.lower() == "false"
+                and self.request.user.is_authenticated
+                and getattr(
+                    self.request.user,
+                    "role",
+                    None,
+                ) == UserRole.ADMIN
+            ):
+                qs = qs.filter(is_active=False)
+        
 
         # Keyword search
         search = params.get("search")
