@@ -1,3 +1,7 @@
+from accounts.models import GoogleIdentity
+from django.contrib.auth import get_user_model
+from rest_framework.compat import requests
+from accounts.api.serializers import GoogleLoginSerializer
 import logging
 
 from accounts.choices import UserRole
@@ -54,7 +58,11 @@ from .serializers import (
     VerifyOTPSerializer,
     LoginSendOTPSerializer,
     SignupVerifyOTPSerializer,
+    GoogleLoginSerializer,
 )
+
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 logger = logging.getLogger(__name__)
 
@@ -1354,7 +1362,165 @@ class LoginVerifyOTPAPIView(APIView):
 # =========================================================
 
 
+class GoogleLoginAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
+    def post(self, request):
+        serializer = GoogleLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        credential = serializer.validated_data["credential"]
+
+        try:
+            google_user = id_token.verify_oauth2_token(
+                credential,
+                requests.Request(),
+                settings.GOOGLE_CLIENT_ID,
+            )
+            
+        except ValueError:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid Google credential.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        google_sub = google_user.get("sub")
+        email = google_user.get("email")
+        first_name = google_user.get("given_name", "")
+        last_name = google_user.get("family_name", "")
+        picture = google_user.get("picture")
+        email_verified = google_user.get(
+            "email_verified",
+            False,
+        )
+
+        if not google_sub:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Google account ID is missing.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Google account does not have an email.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not email_verified:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Google email is not verified.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        User = get_user_model()
+
+        # --------------------------------------------------
+        # 1. Check whether this Google account already exists
+        # --------------------------------------------------
+
+        google_identity = (
+            GoogleIdentity.objects
+            .select_related("user")
+            .filter(google_sub=google_sub)
+            .first()
+        )
+
+        if google_identity:
+            user = google_identity.user
+
+        else:
+            # ----------------------------------------------
+            # 2. Check whether the verified email already
+            #    belongs to an existing TodayFix user
+            # ----------------------------------------------
+
+            user = User.objects.filter(
+                email__iexact=email
+            ).first()
+
+            if user:
+                # Link Google identity to existing user
+                GoogleIdentity.objects.create(
+                    user=user,
+                    google_sub=google_sub,
+                    google_email=email,
+                )
+
+            else:
+                # ------------------------------------------
+                # 3. Create a new TodayFix user
+                # ------------------------------------------
+
+                user = User.objects.create(
+                    email=email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    is_verified=True,
+                    is_active=True,
+                )
+
+                user.set_unusable_password()
+                user.save(
+                    update_fields=["password"]
+                )
+
+                GoogleIdentity.objects.create(
+                    user=user,
+                    google_sub=google_sub,
+                    google_email=email,
+                )
+
+        # --------------------------------------------------
+        # 4. Make sure the TodayFix account is active
+        # --------------------------------------------------
+
+        if not user.is_active:
+            return Response(
+                {
+                    "success": False,
+                    "message": "This account is inactive.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # --------------------------------------------------
+        # 5. Generate the SAME JWT used by existing auth
+        # --------------------------------------------------
+
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Google login successful.",
+                "data": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "user_uuid": str(user.user_uuid),
+                        "email": user.email,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "profile_image": picture,
+                    },
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
     
 
