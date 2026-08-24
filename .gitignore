@@ -58,3 +58,11 @@ dist/
 
 # Do NOT ignore migration files themselves.
 # Migration files should normally be committed.
+
+
+google_test.html
+
+# Service accounts
+*.json
+google-services.json
+ 

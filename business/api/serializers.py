@@ -1,3 +1,5 @@
+
+
 from rest_framework import serializers
 
 from ..choices import BusinessType
@@ -13,13 +15,7 @@ from ..models import (
 from categories.models import Category
 
 
-class BusinessApplicationSubmitSerializer(serializers.Serializer):
-    """
-    Complete one-request business application serializer.
-
-    This serializer is used only for submitting an application.
-    """
-
+class BusinessApplicationDetailsSerializer(serializers.Serializer):
     # =====================================================
     # BUSINESS TYPE
     # =====================================================
@@ -40,30 +36,6 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         required=True,
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.fields["category"].choices = [
-            (
-                category.name,
-                category.name,
-            )
-            for category in Category.objects.filter(
-                is_active=True
-            ).order_by("name")
-        ]
-
-    def validate_category(self, value):
-        try:
-            return Category.objects.get(
-                name=value,
-                is_active=True,
-            )
-        except Category.DoesNotExist:
-            raise serializers.ValidationError(
-                "Selected category does not exist or is inactive."
-            )
-
     # =====================================================
     # PAN
     # =====================================================
@@ -73,11 +45,6 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         allow_blank=True,
     )
 
-    pan_document = serializers.FileField(
-        required=False,
-        allow_null=True,
-    )
-
     # =====================================================
     # AADHAAR
     # =====================================================
@@ -85,11 +52,6 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     aadhaar_number = serializers.CharField(
         required=False,
         allow_blank=True,
-    )
-
-    aadhaar_document = serializers.FileField(
-        required=False,
-        allow_null=True,
     )
 
     # =====================================================
@@ -149,6 +111,9 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         allow_null=True,
     )
 
+    # OPTIONAL
+    # =====================================================
+
     website = serializers.URLField(
         required=False,
         allow_blank=True,
@@ -179,9 +144,29 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         allow_blank=True,
     )
 
-    # =====================================================
-    # VALIDATION
-    # =====================================================
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["category"].choices = [
+            (
+                category.name,
+                category.name,
+            )
+            for category in Category.objects.filter(
+                is_active=True
+            ).order_by("name")
+        ]
+
+    def validate_category(self, value):
+        try:
+            return Category.objects.get(
+                name=value,
+                is_active=True,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError(
+                "Selected category does not exist or is inactive."
+            )
 
     def validate_business_type(self, value):
         if value not in BusinessType.values:
@@ -191,7 +176,80 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
 
         return value
 
+
+class BusinessApplicationSubmitSerializer(serializers.Serializer):
+    """
+    Complete one-request business application serializer.
+
+    This serializer is used only for submitting an application.
+    """
+
+    details = BusinessApplicationDetailsSerializer(required=True)
+
+    # =====================================================
+    # DOCUMENTS & PHOTOS
+    # =====================================================
+
+    pan_document = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    aadhaar_document = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    internal_store_photo = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    external_store_photo = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    cancelled_gst_bill_book_photo = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    logo = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    def to_internal_value(self, data):
+        import json
+
+        if hasattr(data, "getlist"):
+            mutable_data = data.copy()
+        else:
+            mutable_data = dict(data)
+
+        details = mutable_data.get("details")
+        if details:
+            if isinstance(details, list) and len(details) > 0:
+                details = details[0]
+
+            if isinstance(details, str):
+                try:
+                    mutable_data["details"] = json.loads(details)
+                except json.JSONDecodeError:
+                    pass
+
+        return super().to_internal_value(mutable_data)
+
+    # =====================================================
+    # VALIDATION
+    # =====================================================
+
     def validate(self, attrs):
+        
+        details = attrs.pop("details", {})
+        for k, v in details.items():
+            attrs[k] = v
 
         business_type = attrs.get(
             "business_type"
@@ -917,4 +975,3 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
         return EmployeeWorkingSchedule.objects.create(
             **validated_data
         )
-    

@@ -23,6 +23,8 @@ from .views import (
     LoginSendOTPAPIView,
     LoginVerifyOTPAPIView,
 
+    GoogleLoginAPIView,
+
     
 )
 
@@ -52,7 +54,11 @@ urlpatterns = [
         name="signup-verify-otp",
     ),
 
-    
+    path(
+        "google/",
+        GoogleLoginAPIView.as_view(),
+        name="google-login",
+    ),
 
     # =====================================================
     # LOGIN
