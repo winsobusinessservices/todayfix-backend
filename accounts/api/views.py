@@ -59,6 +59,8 @@ from .serializers import (
     LoginSendOTPSerializer,
     SignupVerifyOTPSerializer,
     GoogleLoginSerializer,
+    GoogleLoginSerializer,
+    SignupVerifyOTPSerializer,
 )
 
 from google.oauth2 import id_token
