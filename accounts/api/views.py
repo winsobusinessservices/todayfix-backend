@@ -61,6 +61,7 @@ from .serializers import (
     GoogleLoginSerializer,
     GoogleLoginSerializer,
     SignupVerifyOTPSerializer,
+    VerifyPhoneUpdateOTPSerializer,
 )
 
 from google.oauth2 import id_token
@@ -299,6 +300,11 @@ class VerifyEmailAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                        
                     },
                 },
             },
@@ -355,13 +361,20 @@ class LoginAPIView(CreateAPIView):
                 "data": {
                     "access": str(access),
                     "refresh": str(refresh),
-                    "id": user.id,
-                    "user_uuid": str(user.user_uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "role": user.role,
+                    "user":{
+                        "id": user.id,
+                        "user_uuid": str(user.user_uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role, 
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                   
+                    }
                 },
             },
             status=status.HTTP_200_OK,
@@ -479,12 +492,16 @@ class ProfileAPIView(APIView):
 # =========================================================
 # UPDATE PROFILE
 # =========================================================
+# =========================================================
+# UPDATE PROFILE
+# =========================================================
 
 @extend_schema(
     tags=["Accounts"],
     summary="Update Profile",
     description=(
-        "Update the authenticated user's profile."
+        "Update the authenticated user's profile. "
+        "A new phone number requires OTP verification."
     ),
     request=UpdateProfileSerializer,
 )
@@ -502,11 +519,77 @@ class UpdateProfileAPIView(APIView):
         serializer = UpdateProfileSerializer(
             request.user,
             data=request.data,
+            partial=True,
         )
 
         serializer.is_valid(
             raise_exception=True
         )
+
+        new_phone = serializer.validated_data.get(
+            "phone"
+        )
+
+        # -------------------------------------------------
+        # PHONE NUMBER CHANGE
+        # -------------------------------------------------
+
+        if (
+            new_phone
+            and new_phone != request.user.phone
+        ):
+
+            
+
+            if not OTPService.can_send_otp(
+                new_phone
+            ):
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Please wait 60 seconds "
+                            "before requesting another OTP."
+                        ),
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+
+            otp = OTPService.create_otp(
+                user=request.user,
+                phone=new_phone,
+            )
+
+            print(
+                f"\n{'=' * 50}\n"
+                f"PHONE UPDATE OTP\n"
+                f"User: {request.user.email}\n"
+                f"Phone: {new_phone}\n"
+                f"OTP: {otp}\n"
+                f"Expires: 5 minutes\n"
+                f"{'=' * 50}\n"
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "OTP sent successfully. "
+                        "Please verify the OTP to update "
+                        "your phone number."
+                    ),
+                    "data": {
+                        "phone": new_phone,
+                        "otp_required": True,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # -------------------------------------------------
+        # NORMAL PROFILE UPDATE
+        # -------------------------------------------------
 
         serializer.save()
 
@@ -520,7 +603,9 @@ class UpdateProfileAPIView(APIView):
                 ),
                 "data": {
                     "id": request.user.id,
-                    "user_uuid": str(request.user.user_uuid),
+                    "user_uuid": str(
+                        request.user.user_uuid
+                    ),
                     "firstName": (
                         request.user.first_name
                     ),
@@ -558,6 +643,57 @@ class UpdateProfileAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+# =========================================================
+# VERIFY PHONE UPDATE OTP
+# =========================================================
+
+@extend_schema(
+    request=VerifyPhoneUpdateOTPSerializer,
+    tags=["Accounts"],
+    summary="Verify Phone Update OTP",
+)
+class VerifyPhoneUpdateOTPAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(
+        self,
+        request
+    ):
+
+        serializer = VerifyPhoneUpdateOTPSerializer(
+            data=request.data,
+            context={
+                "request": request
+            },
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        user = request.user
+
+        user.phone = serializer.validated_data["phone"]
+
+        user.save(
+            update_fields=[
+                "phone",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Phone number updated successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 # =========================================================
 # LIST USER ADDRESSES
@@ -1157,6 +1293,11 @@ class SignupVerifyOTPAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )
                     },
                 },
             },
@@ -1287,28 +1428,19 @@ class LoginVerifyOTPAPIView(APIView):
         ]
 
         try:
-
             user = CustomUser.objects.get(
                 phone=phone
             )
 
         except CustomUser.DoesNotExist:
 
-            try:
-
-                user = CustomUser.objects.get(
-                    phone=f"+91{phone}"
-                )
-
-            except CustomUser.DoesNotExist:
-
-                return Response(
-                    {
-                        "success": False,
-                        "message": "User not found.",
-                    },
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+            return Response(
+                {
+                    "success": False,
+                    "message": "User not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         success, message = (
             OTPService.verify_otp(
@@ -1367,6 +1499,10 @@ class LoginVerifyOTPAPIView(APIView):
 class GoogleLoginAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+
+    @extend_schema(
+        request=GoogleLoginSerializer,
+    )
 
     def post(self, request):
         serializer = GoogleLoginSerializer(data=request.data)
@@ -1517,7 +1653,11 @@ class GoogleLoginAPIView(APIView):
                         "email": user.email,
                         "first_name": user.first_name,
                         "last_name": user.last_name,
-                        "profile_image": picture,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                  
                     },
                 },
             },

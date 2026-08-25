@@ -102,17 +102,18 @@ class RegisterUserSerializer(serializers.ModelSerializer):
 
         value = str(value).strip()
 
-        # +919876543210
-        if value.startswith("+91"):
+        # Remove spaces from phone number
+        value = value.replace(" ", "")
 
+        # +91XXXXXXXXXX -> XXXXXXXXXX
+        if value.startswith("+91"):
             value = value[3:]
 
-        # 919876543210
+        # 91XXXXXXXXXX -> XXXXXXXXXX
         elif (
             value.startswith("91")
             and len(value) == 12
         ):
-
             value = value[2:]
 
         # Validate Indian mobile number
@@ -120,24 +121,14 @@ class RegisterUserSerializer(serializers.ModelSerializer):
             r"[6-9]\d{9}",
             value
         ):
-
             raise serializers.ValidationError(
                 "Phone number must be exactly "
                 "10 digits and start with 6, 7, 8, or 9."
             )
 
-        # Check existing normalized phone
+        # Check only the normalized 10-digit value
         if CustomUser.objects.filter(
             phone=value
-        ).exists():
-
-            raise serializers.ValidationError(
-                "Phone number already exists."
-            )
-
-        # Protect against old +91 stored values
-        if CustomUser.objects.filter(
-            phone=f"+91{value}"
         ).exists():
 
             raise serializers.ValidationError(
@@ -290,8 +281,6 @@ class RegisterUserSerializer(serializers.ModelSerializer):
         )
 
 
-
-
 # =========================================================
 # LOGIN
 # =========================================================
@@ -300,7 +289,7 @@ class LoginSerializer(
     serializers.Serializer
 ):
 
-    email = serializers.EmailField()
+    identifier = serializers.CharField()
 
     password = serializers.CharField(
         write_only=True
@@ -308,12 +297,16 @@ class LoginSerializer(
 
     def validate(self, attrs):
 
-        email = attrs.get("email")
+        identifier = attrs.get("identifier")
 
         password = attrs.get("password")
 
+        identifier = str(
+            identifier
+        ).strip()
+
         user = authenticate(
-            email=email,
+            username=identifier,
             password=password
         )
 
@@ -322,7 +315,7 @@ class LoginSerializer(
             raise serializers.ValidationError(
                 {
                     "detail":
-                    "Invalid email or password."
+                    "Invalid email/phone or password."
                 }
             )
 
@@ -378,7 +371,6 @@ class LogoutSerializer(
 # =========================================================
 # UPDATE PROFILE
 # =========================================================
-
 class UpdateProfileSerializer(
     serializers.ModelSerializer
 ):
@@ -428,25 +420,16 @@ class UpdateProfileSerializer(
             return self.instance.phone
 
         value = str(value).strip()
+        value = value.replace(" ", "")
 
-        # -------------------------------------------------
-        # NORMALIZE PHONE NUMBER
-        # -------------------------------------------------
-
-        # +919876543210 -> 9876543210
         if value.startswith("+91"):
             value = value[3:]
 
-        # 919876543210 -> 9876543210
         elif (
             value.startswith("91")
             and len(value) == 12
         ):
             value = value[2:]
-
-        # -------------------------------------------------
-        # VALIDATE INDIAN MOBILE NUMBER
-        # -------------------------------------------------
 
         if not re.fullmatch(
             r"[6-9]\d{9}",
@@ -457,26 +440,13 @@ class UpdateProfileSerializer(
                 "10 digits and start with 6, 7, 8, or 9."
             )
 
-        # -------------------------------------------------
-        # CHECK DUPLICATE ONLY IN CustomUser
-        # -------------------------------------------------
+        # Same user's existing phone is allowed
+        if value == self.instance.phone:
+            return value
 
+        # New phone must not belong to another user
         if CustomUser.objects.filter(
             phone=value
-        ).exclude(
-            pk=self.instance.pk
-        ).exists():
-
-            raise serializers.ValidationError(
-                "Phone number already exists."
-            )
-
-        # -------------------------------------------------
-        # PROTECT AGAINST OLD +91 STORED VALUES
-        # -------------------------------------------------
-
-        if CustomUser.objects.filter(
-            phone=f"+91{value}"
         ).exclude(
             pk=self.instance.pk
         ).exists():
@@ -502,6 +472,26 @@ class UpdateProfileSerializer(
             None
         )
 
+        new_phone = validated_data.get(
+            "phone"
+        )
+
+        # -------------------------------------------------
+        # DO NOT directly update a new phone number.
+        #
+        # The view will handle OTP verification.
+        # -------------------------------------------------
+
+        if (
+            new_phone
+            and new_phone != instance.phone
+        ):
+
+            # Remove phone from the actual update.
+            validated_data.pop(
+                "phone"
+            )
+
         for attr, value in validated_data.items():
 
             if value != "":
@@ -514,6 +504,45 @@ class UpdateProfileSerializer(
         instance.save()
 
         return instance
+    
+class VerifyPhoneUpdateOTPSerializer(serializers.Serializer):
+
+    phone = serializers.CharField()
+    otp = serializers.CharField(
+        max_length=6,
+        min_length=6,
+    )
+
+    def validate_phone(self, value):
+
+        value = value.strip()
+
+        if value.startswith("+91"):
+            value = value[3:]
+
+        elif value.startswith("91") and len(value) == 12:
+            value = value[2:]
+
+        if not value.isdigit() or len(value) != 10:
+            raise serializers.ValidationError(
+                "Enter a valid 10-digit phone number."
+            )
+
+        if value[0] not in "6789":
+            raise serializers.ValidationError(
+                "Enter a valid Indian phone number."
+            )
+
+        return value
+
+    def validate_otp(self, value):
+
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "OTP must contain only digits."
+            )
+
+        return value
 
 # =========================================================
 # ADDRESS
@@ -1012,6 +1041,9 @@ class SendOTPSerializer(
 
         value = str(value).strip()
 
+        # Remove spaces
+        value = value.replace(" ", "")
+
         if value.startswith("+91"):
 
             value = value[3:]
@@ -1040,17 +1072,9 @@ class SendOTPSerializer(
 
         except CustomUser.DoesNotExist:
 
-            try:
-
-                user = CustomUser.objects.get(
-                    phone=f"+91{value}"
-                )
-
-            except CustomUser.DoesNotExist:
-
-                raise serializers.ValidationError(
-                    "No account exists with this phone number."
-                )
+            raise serializers.ValidationError(
+                "No account exists with this phone number."
+            )
 
         if not user.is_active:
 
@@ -1079,11 +1103,14 @@ class LoginSendOTPSerializer(serializers.Serializer):
 
         value = str(value).strip()
 
-        # +919876543210
+        # Remove spaces
+        value = value.replace(" ", "")
+
+        # +919876543210 -> 9876543210
         if value.startswith("+91"):
             value = value[3:]
 
-        # 919876543210
+        # 919876543210 -> 9876543210
         elif (
             value.startswith("91")
             and len(value) == 12
@@ -1099,7 +1126,7 @@ class LoginSendOTPSerializer(serializers.Serializer):
                 "Enter a valid 10-digit Indian mobile number."
             )
 
-        # Find user
+        # Find user using ONLY normalized 10-digit phone
         try:
 
             user = CustomUser.objects.get(
@@ -1108,17 +1135,9 @@ class LoginSendOTPSerializer(serializers.Serializer):
 
         except CustomUser.DoesNotExist:
 
-            try:
-
-                user = CustomUser.objects.get(
-                    phone=f"+91{value}"
-                )
-
-            except CustomUser.DoesNotExist:
-
-                raise serializers.ValidationError(
-                    "No account exists with this phone number."
-                )
+            raise serializers.ValidationError(
+                "No account exists with this phone number."
+            )
 
         # Check account status
         if not user.is_active:
@@ -1134,6 +1153,7 @@ class LoginSendOTPSerializer(serializers.Serializer):
         self.normalized_phone = value
 
         return value
+
 
 # =========================================================
 # LOGIN OTP VERIFY
@@ -1158,6 +1178,9 @@ class VerifyOTPSerializer(
     ):
 
         value = str(value).strip()
+
+        # Remove spaces
+        value = value.replace(" ", "")
 
         if value.startswith("+91"):
 
@@ -1222,6 +1245,9 @@ class SignupSendOTPSerializer(
 
         value = str(value).strip()
 
+        # Remove spaces
+        value = value.replace(" ", "")
+
         if value.startswith("+91"):
 
             value = value[3:]
@@ -1247,16 +1273,9 @@ class SignupSendOTPSerializer(
         # SIGNUP = PHONE MUST NOT ALREADY EXIST
         # -------------------------------------------------
 
+        # Check only normalized 10-digit value
         if CustomUser.objects.filter(
             phone=value
-        ).exists():
-
-            raise serializers.ValidationError(
-                "This phone number is already registered."
-            )
-
-        if CustomUser.objects.filter(
-            phone=f"+91{value}"
         ).exists():
 
             raise serializers.ValidationError(
@@ -1275,10 +1294,6 @@ class SignupVerifyOTPSerializer(serializers.Serializer):
     # -----------------------------------------------------
     # PHONE
     # -----------------------------------------------------
-    # The phone number is now required during OTP
-    # verification so that the OTP can be matched against
-    # the correct signup session/registration.
-    # -----------------------------------------------------
 
     phone = serializers.CharField(
         max_length=15
@@ -1296,12 +1311,6 @@ class SignupVerifyOTPSerializer(serializers.Serializer):
     # -----------------------------------------------------
     # PHONE VALIDATION + NORMALIZATION
     # -----------------------------------------------------
-    # Same normalization used by SignupSendOTPSerializer:
-    #
-    # +919876543210 -> 9876543210
-    # 919876543210  -> 9876543210
-    # 9876543210    -> 9876543210
-    # -----------------------------------------------------
 
     def validate_phone(
         self,
@@ -1309,6 +1318,9 @@ class SignupVerifyOTPSerializer(serializers.Serializer):
     ):
 
         value = str(value).strip()
+
+        # Remove spaces
+        value = value.replace(" ", "")
 
         if value.startswith("+91"):
 
@@ -1405,6 +1417,9 @@ class SignupCompleteSerializer(
 
         value = str(value).strip()
 
+        # Remove spaces
+        value = value.replace(" ", "")
+
         if value.startswith("+91"):
 
             value = value[3:]
@@ -1425,16 +1440,9 @@ class SignupCompleteSerializer(
                 "Enter a valid 10-digit Indian mobile number."
             )
 
+        # Check only normalized 10-digit value
         if CustomUser.objects.filter(
             phone=value
-        ).exists():
-
-            raise serializers.ValidationError(
-                "This phone number is already registered."
-            )
-
-        if CustomUser.objects.filter(
-            phone=f"+91{value}"
         ).exists():
 
             raise serializers.ValidationError(
@@ -1544,5 +1552,3 @@ class SignupCompleteSerializer(
             )
 
         return attrs
-
-
