@@ -200,26 +200,32 @@ class AuthService:
         token,
     ):
 
-        try:
+        
 
-            pending_registration = (
-                PendingRegistration.objects.get(
-                    pending_registration_uuid=pending_registration_uuid,
-                    token=token,
-                )
-            )
+        existing_user = CustomUser.objects.filter(
+            user_uuid=pending_registration_uuid,
+            is_verified=True,
+        ).first()
 
-            if pending_registration.verification_method != "email":
-                raise ValidationError({
-                    "detail": "This registration must be verified using phone OTP."
-                })
+        if existing_user:
+            raise ValidationError({
+                "detail": "User already verified. Please login."
+            })
 
-        except PendingRegistration.DoesNotExist:
+        pending_registration = PendingRegistration.objects.filter(
+            pending_registration_uuid=pending_registration_uuid,
+            token=token,
+        ).first()
 
+        if not pending_registration:
             raise ValidationError({
                 "detail": "Invalid verification link."
             })
 
+        if pending_registration.verification_method != "email":
+            raise ValidationError({
+                "detail": "This registration must be verified using phone OTP."
+            })
         # -----------------------------------------------------
         # Expiry
         # -----------------------------------------------------
@@ -507,6 +513,95 @@ class AuthService:
             })
 
         return True
+
+        # =========================================================
+    # PROFILE PHONE UPDATE - SEND OTP
+    # =========================================================
+
+    @staticmethod
+    def create_phone_update_otp(user, phone):
+
+        from accounts.services.otp_service import OTPService
+
+        if CustomUser.objects.filter(
+            phone=phone
+        ).exclude(
+            pk=user.pk
+        ).exists():
+
+            raise ValidationError({
+                "phone": "Phone number already exists."
+            })
+
+        if not OTPService.can_send_otp(phone):
+            raise ValidationError({
+                "phone": (
+                    "Please wait 60 seconds "
+                    "before requesting another OTP."
+                )
+            })
+
+        otp = OTPService.create_otp(
+            user=user,
+            phone=phone,
+        )
+
+        print(
+            f"\n{'=' * 50}\n"
+            f"PHONE UPDATE OTP\n"
+            f"User: {user.user_uuid}\n"
+            f"Phone: {phone}\n"
+            f"OTP: {otp}\n"
+            f"Expires: 5 minutes\n"
+            f"{'=' * 50}\n"
+        )
+
+        return otp
+
+    # =========================================================
+    # PROFILE PHONE UPDATE - VERIFY OTP
+    # =========================================================
+
+    @staticmethod
+    def verify_phone_update_otp(
+        user,
+        phone,
+        otp,
+    ):
+
+        from accounts.services.otp_service import OTPService
+
+        success, message = OTPService.verify_otp(
+            user=user,
+            phone=phone,
+            otp=otp,
+        )
+
+        if not success:
+            raise ValidationError({
+                "otp": message
+            })
+
+        if CustomUser.objects.filter(
+            phone=phone
+        ).exclude(
+            pk=user.pk
+        ).exists():
+
+            raise ValidationError({
+                "phone": "Phone number already exists."
+            })
+
+        user.phone = phone
+
+        user.save(
+            update_fields=[
+                "phone",
+                "updated_at",
+            ]
+        )
+
+        return user
 
     # =========================================================
     # PASSWORD RESET TOKEN

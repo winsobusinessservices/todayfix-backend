@@ -101,10 +101,12 @@ class OTPVerification(models.Model):
 
     PURPOSE_SIGNUP = "SIGNUP"
     PURPOSE_LOGIN = "LOGIN"
+    PURPOSE_PHONE_UPDATE = "PHONE_UPDATE"
 
     PURPOSE_CHOICES = (
         (PURPOSE_SIGNUP, "Signup"),
         (PURPOSE_LOGIN, "Login"),
+        (PURPOSE_PHONE_UPDATE, "Phone Update"),
     )
 
     otp_verification_uuid = models.UUIDField(

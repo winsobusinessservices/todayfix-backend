@@ -7,7 +7,7 @@ from .views import (
     LogoutAPIView,
     ProfileAPIView,
     UpdateProfileAPIView,
-
+    VerifyPhoneUpdateOTPAPIView,
     ListUserAddressesAPIView,
     CreateUserAddressAPIView,
     GetUserAddressAPIView,
@@ -39,6 +39,12 @@ urlpatterns = [
         "signup/register/",
         RegisterUserAPIView.as_view(),
         name="register-user",
+    ),
+
+    path(
+        "profile/verify-phone/",
+        VerifyPhoneUpdateOTPAPIView.as_view(),
+        name="verify-phone-update-otp",
     ),
 
     path(
