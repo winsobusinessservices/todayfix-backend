@@ -300,6 +300,11 @@ class VerifyEmailAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                        
                     },
                 },
             },
@@ -356,13 +361,20 @@ class LoginAPIView(CreateAPIView):
                 "data": {
                     "access": str(access),
                     "refresh": str(refresh),
-                    "id": user.id,
-                    "user_uuid": str(user.user_uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "role": user.role,
+                    "user":{
+                        "id": user.id,
+                        "user_uuid": str(user.user_uuid),
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "phone": user.phone,
+                        "role": user.role, 
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                   
+                    }
                 },
             },
             status=status.HTTP_200_OK,
@@ -1281,6 +1293,11 @@ class SignupVerifyOTPAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )
                     },
                 },
             },
@@ -1483,6 +1500,10 @@ class GoogleLoginAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    @extend_schema(
+        request=GoogleLoginSerializer,
+    )
+
     def post(self, request):
         serializer = GoogleLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1632,7 +1653,11 @@ class GoogleLoginAPIView(APIView):
                         "email": user.email,
                         "first_name": user.first_name,
                         "last_name": user.last_name,
-                        "profile_image": picture,
+                        "profileImage": (
+                            user.profile_picture.url
+                            if user.profile_picture
+                            else ""  
+                        )                  
                     },
                 },
             },

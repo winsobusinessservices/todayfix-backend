@@ -184,7 +184,10 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     This serializer is used only for submitting an application.
     """
 
-    details = BusinessApplicationDetailsSerializer(required=True)
+    details = BusinessApplicationDetailsSerializer(
+        required=True,
+        allow_null=False
+    )
 
     # =====================================================
     # DOCUMENTS & PHOTOS
@@ -224,12 +227,15 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
         import json
 
         if hasattr(data, "getlist"):
-            mutable_data = data.copy()
+            mutable_data = {
+                key: data.get(key)
+                for key in data.keys()
+            }
         else:
             mutable_data = dict(data)
 
         details = mutable_data.get("details")
-        if details:
+        if details is not None:
             if isinstance(details, list) and len(details) > 0:
                 details = details[0]
 

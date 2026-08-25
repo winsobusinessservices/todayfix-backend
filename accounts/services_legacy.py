@@ -200,26 +200,32 @@ class AuthService:
         token,
     ):
 
-        try:
+        
 
-            pending_registration = (
-                PendingRegistration.objects.get(
-                    pending_registration_uuid=pending_registration_uuid,
-                    token=token,
-                )
-            )
+        existing_user = CustomUser.objects.filter(
+            user_uuid=pending_registration_uuid,
+            is_verified=True,
+        ).first()
 
-            if pending_registration.verification_method != "email":
-                raise ValidationError({
-                    "detail": "This registration must be verified using phone OTP."
-                })
+        if existing_user:
+            raise ValidationError({
+                "detail": "User already verified. Please login."
+            })
 
-        except PendingRegistration.DoesNotExist:
+        pending_registration = PendingRegistration.objects.filter(
+            pending_registration_uuid=pending_registration_uuid,
+            token=token,
+        ).first()
 
+        if not pending_registration:
             raise ValidationError({
                 "detail": "Invalid verification link."
             })
 
+        if pending_registration.verification_method != "email":
+            raise ValidationError({
+                "detail": "This registration must be verified using phone OTP."
+            })
         # -----------------------------------------------------
         # Expiry
         # -----------------------------------------------------
