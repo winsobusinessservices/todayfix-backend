@@ -460,10 +460,15 @@ class ProfileAPIView(APIView):
                     "lastName": user.last_name,
                     "role": user.role,
                     "hasBusiness": (
-                        user.role == UserRole.BUSINESS
+                        user.has_business
                     ),
                     "businessVerified": (
                         user.business_verified
+                    ),
+                    "businessStatus": (
+                        user.business_applications.first().status
+                        if user.business_applications.exists()
+                        else None
                     ),
                     "email": user.email,
                     "profileImage": (
@@ -614,11 +619,15 @@ class UpdateProfileAPIView(APIView):
                     ),
                     "role": request.user.role,
                     "hasBusiness": (
-                        request.user.role
-                        == UserRole.BUSINESS
+                        request.user.has_business
                     ),
                     "businessVerified": (
                         request.user.business_verified
+                    ),
+                    "businessStatus": (
+                        request.user.business_applications.first().status
+                        if request.user.business_applications.exists()
+                        else None
                     ),
                     "email": request.user.email,
                     "profileImage": (
