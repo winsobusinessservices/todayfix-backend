@@ -40,6 +40,10 @@ class BusinessApplicationService:
         application.full_clean()
         application.save()
 
+        user.has_business = True
+        user.business_verified = False
+        user.save(update_fields=["has_business", "business_verified"])
+
         return application
 
     # =====================================================
@@ -95,7 +99,9 @@ class BusinessApplicationService:
             )
 
         user.role = UserRole.BUSINESS
-        user.save(update_fields=["role"])
+        user.has_business = True
+        user.business_verified = True
+        user.save(update_fields=["role", "has_business", "business_verified"])
 
         application.status = (
             BusinessApplicationStatus.APPROVED
@@ -179,6 +185,11 @@ class BusinessApplicationService:
                 "rejection_reason",
             ]
         )
+
+        user = application.user
+        user.has_business = True
+        user.business_verified = False
+        user.save(update_fields=["has_business", "business_verified"])
 
         return application
 
