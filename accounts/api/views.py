@@ -3,48 +3,38 @@ from django.contrib.auth import get_user_model
 from rest_framework.compat import requests
 from accounts.api.serializers import GoogleLoginSerializer
 import logging
-
 from accounts.choices import UserRole
 from datetime import timedelta
-
 from django.utils import timezone
-
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import CreateAPIView
-
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiResponse,
     OpenApiExample,
 )
-
 from rest_framework.permissions import (
     IsAuthenticated,
     AllowAny,
 )
-
 from rest_framework_simplejwt.tokens import RefreshToken
-
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.core.mail import EmailMultiAlternatives
-
 from accounts.models import (
     CustomUser,
     PasswordResetToken,
     EmailTemplate,
     Address,
 )
-
 from accounts.services import (
     AuthService,
     OTPService,
     SignupOTPService,
 )
-
 from .serializers import (
     RegisterUserSerializer,
     LoginSerializer,
@@ -63,16 +53,12 @@ from .serializers import (
     SignupVerifyOTPSerializer,
     VerifyPhoneUpdateOTPSerializer,
 )
-
 from google.oauth2 import id_token
 from google.auth.transport import requests
-
 logger = logging.getLogger(__name__)
-
 # =========================================================
 # REGISTER USER
 # =========================================================
-
 @extend_schema(
     auth=[],
     tags=["SignUp"],
@@ -102,42 +88,29 @@ logger = logging.getLogger(__name__)
     },
 )
 class RegisterUserAPIView(CreateAPIView):
-
     serializer_class = RegisterUserSerializer
-
     def create(
         self,
         request,
         *args,
         **kwargs
     ):
-
         serializer = self.get_serializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         result = serializer.save()
-
-        
-
         # -----------------------------------------------------
         # EMAIL REGISTRATION
         # -----------------------------------------------------
-
         pending_registration = result
-
         # -----------------------------------------------------
         # PHONE REGISTRATION
         # -----------------------------------------------------
-
         if pending_registration.verification_method == "phone":
-
             phone = pending_registration.phone
-
             if not SignupOTPService.can_send_otp(phone):
                 return Response(
                     {
@@ -149,11 +122,9 @@ class RegisterUserAPIView(CreateAPIView):
                     },
                     status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
-
             otp = SignupOTPService.create_otp(
                 phone=phone
             )
-
             print(
                 f"\n{'=' * 50}\n"
                 f"SIGNUP OTP\n"
@@ -162,12 +133,10 @@ class RegisterUserAPIView(CreateAPIView):
                 f"Expires: 5 minutes\n"
                 f"{'=' * 50}\n"
             )
-
             logger.debug(
                 "SIGNUP OTP | Phone: %s | OTP: %s | Expires: 5 min",
                 phone, otp,
             )
-
             return Response(
                 {
                     "success": True,
@@ -175,17 +144,14 @@ class RegisterUserAPIView(CreateAPIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
-
         verification_link = (
             f"{settings.FRONTEND_DOMAIN}/verify-email/"
             f"?pending_registration_uuid={pending_registration.pending_registration_uuid}"
             f"&token={pending_registration.token}"
         )
-
         template = EmailTemplate.objects.get(
             name="REGISTRATION_VERIFICATION"
         )
-
         message = template.message.replace(
             "{{ first_name }}",
             pending_registration.first_name or "User",
@@ -196,7 +162,6 @@ class RegisterUserAPIView(CreateAPIView):
             "{{ expiry_hours }}",
             "15 minutes",
         )
-
         html_message = render_to_string(
             "emails/base_email.html",
             {
@@ -212,23 +177,19 @@ class RegisterUserAPIView(CreateAPIView):
                 "additional_message": "",
             },
         )
-
         email_message = EmailMultiAlternatives(
             subject=template.subject,
             body=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[pending_registration.email],
         )
-
         email_message.attach_alternative(
             html_message,
             "text/html",
         )
-
         email_message.send(
             fail_silently=False
         )
-
         return Response(
             {
                 "success": True,
@@ -239,12 +200,9 @@ class RegisterUserAPIView(CreateAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
-
 # =========================================================
 # VERIFY EMAIL
 # =========================================================
-
 @extend_schema(
     auth=[],
     tags=["SignUp"],
@@ -256,35 +214,26 @@ class RegisterUserAPIView(CreateAPIView):
     request=VerifyEmailSerializer,
 )
 class VerifyEmailAPIView(APIView):
-
     permission_classes = [AllowAny]
-
     def post(self, request):
-
         serializer = VerifyEmailSerializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         pending_registration_uuid = serializer.validated_data[
             "pending_registration_uuid"
         ]
-
         token = serializer.validated_data[
             "token"
         ]
-
         user = AuthService.verify_email_registration(
             pending_registration_uuid=pending_registration_uuid,
             token=token,
         )
-
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
-
         return Response(
             {
                 "success": True,
@@ -303,21 +252,16 @@ class VerifyEmailAPIView(APIView):
                         "profileImage": (
                             user.profile_picture.url
                             if user.profile_picture
-                            else ""  
-                        )                        
+                            else ""
+                        )
                     },
                 },
             },
             status=status.HTTP_200_OK,
         )
-
-
-
-
 # =========================================================
 # LOGIN
 # =========================================================
-
 @extend_schema(
     auth=[],
     tags=["Login"],
@@ -326,34 +270,26 @@ class VerifyEmailAPIView(APIView):
     request=LoginSerializer,
 )
 class LoginAPIView(CreateAPIView):
-
     serializer_class = LoginSerializer
-
     def create(
         self,
         request,
         *args,
         **kwargs
     ):
-
         serializer = self.get_serializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         user = serializer.validated_data[
             "user"
         ]
-
         refresh = RefreshToken.for_user(
             user
         )
-
         access = refresh.access_token
-
         return Response(
             {
                 "success": True,
@@ -368,23 +304,20 @@ class LoginAPIView(CreateAPIView):
                         "last_name": user.last_name,
                         "email": user.email,
                         "phone": user.phone,
-                        "role": user.role, 
+                        "role": user.role,
                         "profileImage": (
                             user.profile_picture.url
                             if user.profile_picture
-                            else ""  
-                        )                   
+                            else ""
+                        )
                     }
                 },
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # LOGOUT
 # =========================================================
-
 @extend_schema(
     auth=[{"BearerAuth": []}],
     tags=["Logout"],
@@ -395,26 +328,20 @@ class LoginAPIView(CreateAPIView):
     request=LogoutSerializer,
 )
 class LogoutAPIView(CreateAPIView):
-
     serializer_class = LogoutSerializer
-
     def create(
         self,
         request,
         *args,
         **kwargs
     ):
-
         serializer = self.get_serializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         serializer.save()
-
         return Response(
             {
                 "success": True,
@@ -422,12 +349,9 @@ class LogoutAPIView(CreateAPIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # PROFILE
 # =========================================================
-
 @extend_schema(
     auth=[{"BearerAuth": []}],
     tags=["Accounts"],
@@ -438,15 +362,11 @@ class LogoutAPIView(CreateAPIView):
     ),
 )
 class ProfileAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def get(self, request):
-
         user = request.user
-
         return Response(
             {
                 "success": True,
@@ -492,15 +412,12 @@ class ProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # UPDATE PROFILE
 # =========================================================
 # =========================================================
 # UPDATE PROFILE
 # =========================================================
-
 @extend_schema(
     tags=["Accounts"],
     summary="Update Profile",
@@ -511,45 +428,34 @@ class ProfileAPIView(APIView):
     request=UpdateProfileSerializer,
 )
 class UpdateProfileAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def post(
         self,
         request
     ):
-
         serializer = UpdateProfileSerializer(
             request.user,
             data=request.data,
             partial=True,
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         new_phone = serializer.validated_data.get(
             "phone"
         )
-
         # -------------------------------------------------
         # PHONE NUMBER CHANGE
         # -------------------------------------------------
-
         if (
             new_phone
             and new_phone != request.user.phone
         ):
-
-            
-
             if not OTPService.can_send_otp(
                 new_phone
             ):
-
                 return Response(
                     {
                         "success": False,
@@ -560,12 +466,10 @@ class UpdateProfileAPIView(APIView):
                     },
                     status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
-
             otp = OTPService.create_otp(
                 user=request.user,
                 phone=new_phone,
             )
-
             print(
                 f"\n{'=' * 50}\n"
                 f"PHONE UPDATE OTP\n"
@@ -575,7 +479,6 @@ class UpdateProfileAPIView(APIView):
                 f"Expires: 5 minutes\n"
                 f"{'=' * 50}\n"
             )
-
             return Response(
                 {
                     "success": True,
@@ -591,15 +494,11 @@ class UpdateProfileAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
         # -------------------------------------------------
         # NORMAL PROFILE UPDATE
         # -------------------------------------------------
-
         serializer.save()
-
         request.user.refresh_from_db()
-
         return Response(
             {
                 "success": True,
@@ -651,49 +550,39 @@ class UpdateProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 # =========================================================
 # VERIFY PHONE UPDATE OTP
 # =========================================================
-
 @extend_schema(
     request=VerifyPhoneUpdateOTPSerializer,
     tags=["Accounts"],
     summary="Verify Phone Update OTP",
 )
 class VerifyPhoneUpdateOTPAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def post(
         self,
         request
     ):
-
         serializer = VerifyPhoneUpdateOTPSerializer(
             data=request.data,
             context={
                 "request": request
             },
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         user = request.user
-
         user.phone = serializer.validated_data["phone"]
-
         user.save(
             update_fields=[
                 "phone",
                 "updated_at",
             ]
         )
-
         return Response(
             {
                 "success": True,
@@ -703,11 +592,9 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 # =========================================================
 # LIST USER ADDRESSES
 # =========================================================
-
 @extend_schema(
     tags=["Address"],
     summary="List User Addresses",
@@ -717,25 +604,20 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
     ),
 )
 class ListUserAddressesAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def get(
         self,
         request
     ):
-
         addresses = Address.objects.filter(
             user=request.user
         )
-
         serializer = AddressSerializer(
             addresses,
             many=True,
         )
-
         return Response(
             {
                 "success": True,
@@ -746,12 +628,9 @@ class ListUserAddressesAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # CREATE ADDRESS
 # =========================================================
-
 @extend_schema(
     tags=["Address"],
     summary="Add User Address",
@@ -762,20 +641,16 @@ class ListUserAddressesAPIView(APIView):
     request=AddressSerializer,
 )
 class CreateUserAddressAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def post(
         self,
         request
     ):
-
         if Address.objects.filter(
             user=request.user
         ).count() >= 5:
-
             return Response(
                 {
                     "success": False,
@@ -786,19 +661,15 @@ class CreateUserAddressAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         serializer = AddressSerializer(
             data=request.data,
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         serializer.save(
             user=request.user
         )
-
         return Response(
             {
                 "success": True,
@@ -809,12 +680,9 @@ class CreateUserAddressAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
-
 # =========================================================
 # GET ADDRESS
 # =========================================================
-
 @extend_schema(
     tags=["Address"],
     summary="Get User Address",
@@ -827,27 +695,22 @@ class CreateUserAddressAPIView(APIView):
     },
 )
 class GetUserAddressAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def get(
         self,
         request,
         add_uuid
     ):
-
         address = get_object_or_404(
             Address,
             add_uuid=add_uuid,
             user=request.user,
         )
-
         serializer = AddressSerializer(
             address
         )
-
         return Response(
             {
                 "success": True,
@@ -858,12 +721,9 @@ class GetUserAddressAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # UPDATE ADDRESS
 # =========================================================
-
 @extend_schema(
     tags=["Address"],
     summary="Update User Address",
@@ -874,35 +734,28 @@ class GetUserAddressAPIView(APIView):
     request=AddressSerializer,
 )
 class UpdateUserAddressAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def post(
         self,
         request,
         add_uuid
     ):
-
         address = get_object_or_404(
             Address,
             add_uuid=add_uuid,
             user=request.user,
         )
-
         serializer = AddressSerializer(
             address,
             data=request.data,
             partial=True,
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         serializer.save()
-
         return Response(
             {
                 "success": True,
@@ -913,12 +766,9 @@ class UpdateUserAddressAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # DELETE ADDRESS
 # =========================================================
-
 @extend_schema(
     tags=["Address"],
     summary="Delete User Address",
@@ -928,26 +778,20 @@ class UpdateUserAddressAPIView(APIView):
     ),
 )
 class DeleteUserAddressAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
-
     def delete(
         self,
         request,
         add_uuid
     ):
-
         try:
-
             address = Address.objects.get(
                 add_uuid=add_uuid,
                 user=request.user,
             )
-
         except Address.DoesNotExist:
-
             return Response(
                 {
                     "success": False,
@@ -955,9 +799,7 @@ class DeleteUserAddressAPIView(APIView):
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-
         address.delete()
-
         return Response(
             {
                 "success": True,
@@ -967,18 +809,13 @@ class DeleteUserAddressAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # FORGOT PASSWORD
 # =========================================================
-
 class ForgotPasswordView(APIView):
-
     permission_classes = [
         AllowAny
     ]
-
     @extend_schema(
         auth=[],
         tags=["Login"],
@@ -989,33 +826,26 @@ class ForgotPasswordView(APIView):
         self,
         request
     ):
-
         serializer = ForgotPasswordSerializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         user = serializer.user
-
         reset_token = (
             AuthService.create_password_reset_token(
                 user
             )
         )
-
         reset_link = (
             AuthService.get_password_reset_link(
                 reset_token
             )
         )
-
         template = EmailTemplate.objects.get(
             name="PASSWORD_RESET_LINK"
         )
-
         html_message = render_to_string(
             "emails/base_email.html",
             {
@@ -1028,23 +858,19 @@ class ForgotPasswordView(APIView):
                 "additional_message": "",
             },
         )
-
         email_message = EmailMultiAlternatives(
             subject=template.subject,
             body=template.message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )
-
         email_message.attach_alternative(
             html_message,
             "text/html",
         )
-
         email_message.send(
             fail_silently=False
         )
-
         return Response(
             {
                 "success": True,
@@ -1054,18 +880,13 @@ class ForgotPasswordView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # UNIFIED PASSWORD RESET
 # =========================================================
-
 class UnifiedPasswordResetView(APIView):
-
     permission_classes = [
         AllowAny
     ]
-
     @extend_schema(
         tags=["Login"],
         request=UnifiedPasswordResetSerializer,
@@ -1074,25 +895,20 @@ class UnifiedPasswordResetView(APIView):
         self,
         request
     ):
-
         serializer = UnifiedPasswordResetSerializer(
             data=request.data,
             context={
                 "request": request
             },
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         user = serializer.user
-
         # --------------------------------------------------
         # LOGGED-OUT USER
         # SEND RESET LINK
         # --------------------------------------------------
-
         if (
             not request.user.is_authenticated
             and serializer.validated_data.get(
@@ -1102,25 +918,20 @@ class UnifiedPasswordResetView(APIView):
                 "token"
             )
         ):
-
             reset_token = (
                 AuthService.create_password_reset_token(
                     user
                 )
             )
-
             reset_link = (
                 f"{settings.FRONTEND_DOMAIN}/reset-password/"
                 f"?user_uuid={user.user_uuid}"
                 f"&token={reset_token.token}"
             )
-
             template = EmailTemplate.objects.get(
                 name="PASSWORD_RESET_LINK"
             )
-
             subject = template.subject
-
             message = template.message.replace(
                 "{{ first_name }}",
                 user.first_name or "User"
@@ -1131,7 +942,6 @@ class UnifiedPasswordResetView(APIView):
                 "{{ expiry_minutes }}",
                 "15"
             )
-
             html_message = render_to_string(
                 "emails/base_email.html",
                 {
@@ -1146,23 +956,19 @@ class UnifiedPasswordResetView(APIView):
                     "additional_message": "",
                 },
             )
-
             email_message = EmailMultiAlternatives(
                 subject=subject,
                 body=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[user.email],
             )
-
             email_message.attach_alternative(
                 html_message,
                 "text/html",
             )
-
             email_message.send(
                 fail_silently=False
             )
-
             return Response(
                 {
                     "success": True,
@@ -1172,45 +978,36 @@ class UnifiedPasswordResetView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
         # --------------------------------------------------
         # PASSWORD RESET
         # --------------------------------------------------
-
         new_password = (
             serializer.validated_data[
                 "new_password"
             ]
         )
-
         AuthService.reset_password(
             user=user,
             new_password=new_password,
         )
-
         reset_token = getattr(
             serializer,
             "reset_token",
             None,
         )
-
         if reset_token:
-
             reset_token.is_used = True
-
             reset_token.save(
                 update_fields=[
                     "is_used"
                 ]
             )
-
         PasswordResetToken.objects.filter(
             user=user,
             is_used=False,
         ).update(
             is_used=True
         )
-
         return Response(
             {
                 "success": True,
@@ -1220,12 +1017,9 @@ class UnifiedPasswordResetView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # SIGNUP OTP - VERIFY
 # =========================================================
-
 @extend_schema(
     request=SignupVerifyOTPSerializer,
     tags=["SignUp"],
@@ -1236,26 +1030,20 @@ class UnifiedPasswordResetView(APIView):
     ),
 )
 class SignupVerifyOTPAPIView(APIView):
-
     authentication_classes = []
-
     permission_classes = [
         AllowAny
     ]
-
     def post(
         self,
         request
     ):
-
         serializer = SignupVerifyOTPSerializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         # -------------------------------------------------
         # Get BOTH phone and OTP from validated request data.
         #
@@ -1263,30 +1051,24 @@ class SignupVerifyOTPAPIView(APIView):
         # so the service receives the canonical 10-digit
         # Indian phone number.
         # -------------------------------------------------
-
         phone = serializer.validated_data[
             "phone"
         ]
-
         otp = serializer.validated_data[
             "otp"
         ]
-
         # -------------------------------------------------
         # Verify signup OTP against the SAME phone number.
         #
         # This prevents an OTP belonging to another phone
         # from being selected.
         # -------------------------------------------------
-
         user = AuthService.verify_phone_registration(
             phone=phone,
             otp=otp,
         )
-
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
-
         return Response(
             {
                 "success": True,
@@ -1305,54 +1087,43 @@ class SignupVerifyOTPAPIView(APIView):
                         "profileImage": (
                             user.profile_picture.url
                             if user.profile_picture
-                            else ""  
+                            else ""
                         )
                     },
                 },
             },
             status=status.HTTP_200_OK,
         )
-
 # =========================================================
 # LOGIN OTP - SEND
 # =========================================================
-
 @extend_schema(
     request=LoginSendOTPSerializer,
     tags=["Login"],
     summary="Send Login OTP",
 )
 class LoginSendOTPAPIView(APIView):
-
     authentication_classes = []
-
     permission_classes = [
         AllowAny
     ]
-
     def post(
         self,
         request
     ):
-
         serializer = LoginSendOTPSerializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         user = serializer.user
-
         phone = serializer.validated_data[
             "phone"
         ]
-
         if not OTPService.can_send_otp(
             phone
         ):
-
             return Response(
                 {
                     "success": False,
@@ -1363,12 +1134,10 @@ class LoginSendOTPAPIView(APIView):
                 },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-
         otp = OTPService.create_otp(
             user=user,
             phone=phone,
         )
-
         print(
             f"\n{'=' * 50}\n"
             f"LOGIN OTP\n"
@@ -1377,16 +1146,13 @@ class LoginSendOTPAPIView(APIView):
             f"Expires: 5 minutes\n"
             f"{'=' * 50}\n"
         )
-
         # -----------------------------------------------------
         # DEVELOPMENT MODE
         # -----------------------------------------------------
-
         logger.debug(
             "LOGIN OTP | Phone: %s | OTP: %s | Expires: 5 min",
             phone, otp,
         )
-
         return Response(
             {
                 "success": True,
@@ -1396,53 +1162,40 @@ class LoginSendOTPAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # LOGIN OTP - VERIFY
 # =========================================================
-
 @extend_schema(
     request=VerifyOTPSerializer,
     tags=["Login"],
     summary="Verify Login OTP",
 )
 class LoginVerifyOTPAPIView(APIView):
-
     authentication_classes = []
-
     permission_classes = [
         AllowAny
     ]
-
     def post(
         self,
         request
     ):
-
         serializer = VerifyOTPSerializer(
             data=request.data
         )
-
         serializer.is_valid(
             raise_exception=True
         )
-
         phone = serializer.validated_data[
             "phone"
         ]
-
         otp = serializer.validated_data[
             "otp"
         ]
-
         try:
             user = CustomUser.objects.get(
                 phone=phone
             )
-
         except CustomUser.DoesNotExist:
-
             return Response(
                 {
                     "success": False,
@@ -1450,7 +1203,6 @@ class LoginVerifyOTPAPIView(APIView):
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-
         success, message = (
             OTPService.verify_otp(
                 user=user,
@@ -1458,9 +1210,7 @@ class LoginVerifyOTPAPIView(APIView):
                 otp=otp,
             )
         )
-
         if not success:
-
             return Response(
                 {
                     "success": False,
@@ -1468,11 +1218,9 @@ class LoginVerifyOTPAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         refresh = RefreshToken.for_user(
             user
         )
-
         return Response(
             {
                 "success": True,
@@ -1498,34 +1246,25 @@ class LoginVerifyOTPAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =========================================================
 # SIGNUP COMPLETE
 # =========================================================
-
-
 class GoogleLoginAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
-
     @extend_schema(
         request=GoogleLoginSerializer,
     )
-
     def post(self, request):
         serializer = GoogleLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         credential = serializer.validated_data["credential"]
-
         try:
             google_user = id_token.verify_oauth2_token(
                 credential,
                 requests.Request(),
                 settings.GOOGLE_CLIENT_ID,
             )
-            
         except ValueError:
             return Response(
                 {
@@ -1534,7 +1273,6 @@ class GoogleLoginAPIView(APIView):
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-
         google_sub = google_user.get("sub")
         email = google_user.get("email")
         first_name = google_user.get("given_name", "")
@@ -1544,7 +1282,6 @@ class GoogleLoginAPIView(APIView):
             "email_verified",
             False,
         )
-
         if not google_sub:
             return Response(
                 {
@@ -1553,7 +1290,6 @@ class GoogleLoginAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         if not email:
             return Response(
                 {
@@ -1562,7 +1298,6 @@ class GoogleLoginAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         if not email_verified:
             return Response(
                 {
@@ -1571,33 +1306,26 @@ class GoogleLoginAPIView(APIView):
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-
         User = get_user_model()
-
         # --------------------------------------------------
         # 1. Check whether this Google account already exists
         # --------------------------------------------------
-
         google_identity = (
             GoogleIdentity.objects
             .select_related("user")
             .filter(google_sub=google_sub)
             .first()
         )
-
         if google_identity:
             user = google_identity.user
-
         else:
             # ----------------------------------------------
             # 2. Check whether the verified email already
             #    belongs to an existing TodayFix user
             # ----------------------------------------------
-
             user = User.objects.filter(
                 email__iexact=email
             ).first()
-
             if user:
                 # Link Google identity to existing user
                 GoogleIdentity.objects.create(
@@ -1605,12 +1333,10 @@ class GoogleLoginAPIView(APIView):
                     google_sub=google_sub,
                     google_email=email,
                 )
-
             else:
                 # ------------------------------------------
                 # 3. Create a new TodayFix user
                 # ------------------------------------------
-
                 user = User.objects.create(
                     email=email,
                     first_name=first_name,
@@ -1618,22 +1344,18 @@ class GoogleLoginAPIView(APIView):
                     is_verified=True,
                     is_active=True,
                 )
-
                 user.set_unusable_password()
                 user.save(
                     update_fields=["password"]
                 )
-
                 GoogleIdentity.objects.create(
                     user=user,
                     google_sub=google_sub,
                     google_email=email,
                 )
-
         # --------------------------------------------------
         # 4. Make sure the TodayFix account is active
         # --------------------------------------------------
-
         if not user.is_active:
             return Response(
                 {
@@ -1642,13 +1364,10 @@ class GoogleLoginAPIView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
-
         # --------------------------------------------------
         # 5. Generate the SAME JWT used by existing auth
         # --------------------------------------------------
-
         refresh = RefreshToken.for_user(user)
-
         return Response(
             {
                 "success": True,
@@ -1665,14 +1384,10 @@ class GoogleLoginAPIView(APIView):
                         "profileImage": (
                             user.profile_picture.url
                             if user.profile_picture
-                            else ""  
-                        )                  
+                            else ""
+                        )
                     },
                 },
             },
             status=status.HTTP_200_OK,
         )
-
-    
-
-

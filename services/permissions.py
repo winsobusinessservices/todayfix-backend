@@ -46,3 +46,38 @@ class IsServiceOwner(BasePermission):
         obj,
     ):
         return obj.business.owner == request.user
+
+class IsAdminRole(BasePermission):
+    """
+    Only ADMIN users can create/update/delete
+    service types and units.
+    """
+
+    message = "Only ADMIN users can manage service types."
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.role == UserRole.ADMIN
+        )
+
+
+class IsAdminOrBusiness(BasePermission):
+    """
+    Only ADMIN or BUSINESS users can view
+    service types and units.
+    """
+
+    message = (
+        "Only admins and business owners can "
+        "view service types."
+    )
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.role
+            in (UserRole.ADMIN, UserRole.BUSINESS)
+        )

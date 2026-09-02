@@ -4,6 +4,111 @@ from django.db import models
 from core.models.base import TimeStampedModel
 from business.models import BusinessProfile
 from categories.models import Category, SubCategory
+from django.core.exceptions import ValidationError
+
+#=========================================================================================================
+#                                   Service Type & Unit (admin managed)
+#=========================================================================================================
+class ServiceType(TimeStampedModel):
+    """
+    Admin-managed service type.
+
+    Example: Sell/Buy, Maintenance, Time Based, Rental,
+    Documentation, Transport, Training/Education, Healthcare.
+    """
+
+    type_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+    )
+
+    slug = models.SlugField(
+        max_length=120,
+        unique=True,
+        db_index=True,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def clean(self):
+        super().clean()
+
+        self.name = self.name.strip()
+
+        if not self.name:
+            raise ValidationError(
+                {"name": "Service type name is required."}
+            )
+
+    def __str__(self):
+        return self.name
+
+
+class Unit(TimeStampedModel):
+    """
+    Unit belonging to a ServiceType.
+
+    Example:
+        ServiceType: Rental
+        Unit: Per Day, Per Hour
+    """
+
+    unit_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    service_type = models.ForeignKey(
+        ServiceType,
+        on_delete=models.PROTECT,
+        related_name="units",
+    )
+
+    name = models.CharField(
+        max_length=100,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["service_type", "name"],
+                name="unique_unit_per_service_type",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        self.name = self.name.strip()
+
+        if not self.name:
+            raise ValidationError(
+                {"name": "Unit name is required."}
+            )
+
+    def __str__(self):
+        return f"{self.service_type.name} → {self.name}"
 
 
 class Service(TimeStampedModel):
@@ -38,6 +143,18 @@ class Service(TimeStampedModel):
         related_name="services",
         null=True,
         blank=True,
+    )
+
+    service_type = models.ForeignKey(
+        ServiceType,
+        on_delete=models.PROTECT,
+        related_name="services",
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name="services",
     )
 
     name = models.CharField(

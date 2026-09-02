@@ -23,6 +23,7 @@ from .views import (
     BusinessApplicationPendingListAPIView,
     BusinessApplicationAcceptedListAPIView,
     BusinessApplicationRejectedListAPIView,
+    BusinessApplicationDocumentsAPIView
 )
 
 
@@ -51,7 +52,11 @@ urlpatterns = [
     ),
 
     
-
+    path(
+        "applications/<uuid:business_application_uuid>/documents/",
+        BusinessApplicationDocumentsAPIView.as_view(),
+        name="business-application-documents",
+    ),
     # =====================================================
     # ADMIN - BUSINESS APPLICATION
     # =====================================================

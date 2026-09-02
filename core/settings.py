@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "categories",
     "services",
     "bookings",
+    "instant_bookings",
 ]
 
 
@@ -152,6 +153,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+
 AUTH_USER_MODEL = "accounts.CustomUser"
 AUTHENTICATION_BACKENDS = [
     "accounts.backends.EmailOrPhoneBackend",
@@ -216,24 +218,10 @@ REST_FRAMEWORK = {
 # ============================================================
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
-
-
-class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
-    target_class = "accounts.authentication.CustomJWTAuthentication"
-    name = "BearerAuth"
-
-    def get_security_definition(self, auto_schema):
-        return {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT",
-        }
-
-
 SPECTACULAR_SETTINGS = {
     "TITLE": "TodayFix Service API",
     "DESCRIPTION": "TodayFix.in Backend Service APIs",
-    "VERSION": "1.0.0",
+
 
     "SERVE_INCLUDE_SCHEMA": False,
 
@@ -296,6 +284,23 @@ SPECTACULAR_SETTINGS = {
         }
     ],
 }
+
+
+
+
+class JWTAuthenticationScheme(OpenApiAuthenticationExtension):
+    target_class = "accounts.authentication.CustomJWTAuthentication"
+    name = "BearerAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+
+
+
 
 
 # ============================================================

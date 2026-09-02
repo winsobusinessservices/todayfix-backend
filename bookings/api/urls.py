@@ -14,6 +14,8 @@ from .views import (
     BookingSlotAvailabilityAPIView,
     BusinessBookingAssignEmployeeAPIView,
     BusinessBookingReassignEmployeeAPIView,
+    UserBookingHistoryAPIView,
+    UserPendingBookingHistoryAPIView
 )
 
 urlpatterns = [
@@ -41,6 +43,17 @@ urlpatterns = [
         name="user-booking-cancel"
     ),
 
+    path(
+        "history/",
+        UserBookingHistoryAPIView.as_view(),
+        name="user-booking-history",
+    ),
+
+    path(
+        "history/pending/",
+        UserPendingBookingHistoryAPIView.as_view(),
+        name="user-pending-booking-history",
+    ),
     # =====================================================
     # BUSINESS ENDPOINTS
     # =====================================================

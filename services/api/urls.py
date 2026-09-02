@@ -9,6 +9,13 @@ from .views import (
     ServiceSearchAPIView,
     ServiceEmployeeCreateAPIView,
     ServiceEmployeeListAPIView,
+    ServiceTypeListCreateAPIView,
+    ServiceTypeDetailAPIView,
+    UnitListCreateAPIView,
+    UnitDetailAPIView,
+    MyServicesAPIView,
+    ServiceEmployeeDeleteAPIView,
+    SubCategoryServiceListAPIView
 )
 
 
@@ -30,6 +37,46 @@ urlpatterns = [
         name="service-search",
     ),
 
+    # =====================================================
+    # SERVICE TYPES & UNITS (ADMIN manage, ADMIN+BUSINESS view)
+    # =====================================================
+
+    path(
+        "types/",
+        ServiceTypeListCreateAPIView.as_view(),
+        name="service-type-list-create",
+    ),
+
+    path(
+        "types/<uuid:type_uuid>/",
+        ServiceTypeDetailAPIView.as_view(),
+        name="service-type-detail",
+    ),
+
+    path(
+        "subcategory/<uuid:subCat_uuid>/services/",
+        SubCategoryServiceListAPIView.as_view(),
+        name="subcategory-services",
+    ),
+
+    path(
+        "my/",
+        MyServicesAPIView.as_view(),
+        name="my-services",
+    ),
+
+    path(
+        "types/<uuid:type_uuid>/units/",
+        UnitListCreateAPIView.as_view(),
+        name="unit-list-create",
+    ),
+
+    path(
+        "types/units/<uuid:unit_uuid>/",
+        UnitDetailAPIView.as_view(),
+        name="unit-detail",
+    ),
+
     path(
         "<uuid:service_uuid>/",
         ServiceDetailAPIView.as_view(),
@@ -44,6 +91,12 @@ urlpatterns = [
         "create/",
         ServiceCreateAPIView.as_view(),
         name="service-create",
+    ),
+
+    path(
+        "<uuid:service_uuid>/employees/<uuid:employee_uuid>/remove/",
+        ServiceEmployeeDeleteAPIView.as_view(),
+        name="service-employee-delete",
     ),
 
     path(

@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from ..choices import BusinessType
+from ..choices import BusinessType, BusinessApplicationStatus
 from ..models import (
     BusinessApplication,
     BusinessBankAccount,
@@ -252,7 +252,7 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     # =====================================================
 
     def validate(self, attrs):
-        
+
         details = attrs.pop("details", {})
         for k, v in details.items():
             attrs[k] = v
@@ -577,62 +577,65 @@ class BusinessApplicationFullSerializer(
         read_only_fields = fields
 
     def get_identity(self, obj):
-
         try:
             identity = obj.identity
         except BusinessIdentity.DoesNotExist:
             return None
 
+        request = self.context.get("request")
+
+        def get_file_url(file_field):
+            if not file_field or not file_field.name:
+                return None
+
+            url = f"/media/{file_field.name}"
+
+            if request:
+                url = request.build_absolute_uri(url)
+
+            return url
+
         return {
-            "business_identity_uuid": str(identity.business_identity_uuid),
+            "business_identity_uuid": str(
+                identity.business_identity_uuid
+            ),
+
             "pan_number": identity.pan_number,
-            "pan_document": (
-                True
-                if identity.pan_document
-                else False
+            "pan_document": get_file_url(
+                identity.pan_document
             ),
+
             "aadhaar_number": identity.aadhaar_number,
-            "aadhaar_document": (
-                True
-                if identity.aadhaar_document
-                else False
+            "aadhaar_document": get_file_url(
+                identity.aadhaar_document
             ),
+
             "gst_number": identity.gst_number,
             "udyam_number": identity.udyam_number,
-            "labour_license_number": (
-                identity.labour_license_number
+            "labour_license_number": identity.labour_license_number,
+            "bbmp_license_number": identity.bbmp_license_number,
+            "food_license_number": identity.food_license_number,
+
+            "internal_store_photo": get_file_url(
+                identity.internal_store_photo
             ),
-            "bbmp_license_number": (
-                identity.bbmp_license_number
+
+            "external_store_photo": get_file_url(
+                identity.external_store_photo
             ),
-            "food_license_number": (
-                identity.food_license_number
+
+            "cancelled_gst_bill_book_photo": get_file_url(
+                identity.cancelled_gst_bill_book_photo
             ),
-            "internal_store_photo": (
-                True
-                if identity.internal_store_photo
-                else False
+
+            "logo": get_file_url(
+                identity.logo
             ),
-            "external_store_photo": (
-                True
-                if identity.external_store_photo
-                else False
-            ),
-            "cancelled_gst_bill_book_photo": (
-                True
-                if identity.cancelled_gst_bill_book_photo
-                else False
-            ),
-            "logo": (
-                True
-                if identity.logo
-                else False
-            ),
+
             "website": identity.website,
             "created_at": identity.created_at,
             "updated_at": identity.updated_at,
         }
-
     def get_bank_account(self, obj):
 
         try:
@@ -687,6 +690,8 @@ class RejectBusinessApplicationSerializer(
 class BusinessProfileSerializer(
     serializers.ModelSerializer
 ):
+    identity = serializers.SerializerMethodField()
+
     class Meta:
         model = BusinessProfile
 
@@ -696,11 +701,13 @@ class BusinessProfileSerializer(
             "business_type",
             "name",
             "description",
+            "location",
             "email",
             "phone",
             "website",
             "is_active",
             "created_at",
+            "identity",
         )
 
         read_only_fields = (
@@ -708,12 +715,85 @@ class BusinessProfileSerializer(
             "owner",
             "business_type",
             "created_at",
+            "identity",
         )
+
+    def get_identity(self, obj):
+        identity = (
+            BusinessIdentity.objects
+            .filter(
+                application__user=obj.owner,
+                application__status=BusinessApplicationStatus.APPROVED,
+            )
+            .first()
+        )
+
+        if not identity:
+            return None
+
+        request = self.context.get("request")
+
+        def file_url(file_field):
+            if not file_field or not file_field.name:
+                return None
+
+            url = f"/media/{file_field.name}"
+
+            if request:
+                return request.build_absolute_uri(url)
+
+            return url
+
+        return {
+            "business_identity_uuid": str(
+                identity.business_identity_uuid
+            ),
+
+            "pan_number": identity.pan_number,
+            "pan_document": file_url(
+                identity.pan_document
+            ),
+
+            "aadhaar_number": identity.aadhaar_number,
+            "aadhaar_document": file_url(
+                identity.aadhaar_document
+            ),
+
+            "gst_number": identity.gst_number,
+            "udyam_number": identity.udyam_number,
+            "labour_license_number": (
+                identity.labour_license_number
+            ),
+            "bbmp_license_number": (
+                identity.bbmp_license_number
+            ),
+            "food_license_number": (
+                identity.food_license_number
+            ),
+
+            "internal_store_photo": file_url(
+                identity.internal_store_photo
+            ),
+            "external_store_photo": file_url(
+                identity.external_store_photo
+            ),
+            "cancelled_gst_bill_book_photo": file_url(
+                identity.cancelled_gst_bill_book_photo
+            ),
+            "logo": file_url(
+                identity.logo
+            ),
+
+            "website": identity.website,
+            "created_at": identity.created_at,
+            "updated_at": identity.updated_at,
+        }
 
 #=============================================================================================================================
 #                       Create Employee Seriaalizer
 #=============================================================================================================================
 class EmployeeCreateSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Employee
         fields = (
@@ -740,10 +820,28 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
                 "Phone number must contain exactly 10 digits."
             )
 
+        request = self.context.get("request")
+
+        if request and request.user.is_authenticated:
+
+            business = BusinessProfile.objects.filter(
+                owner=request.user,
+                is_active=True,
+            ).first()
+
+            if business and Employee.objects.filter(
+                business=business,
+                phone=value,
+            ).exists():
+                raise serializers.ValidationError(
+                    "An employee with this phone number "
+                    "already exists in your business."
+                )
+
         return value
 
 #========================================================
-#         Employee List Serializer 
+#         Employee List Serializer
 #========================================================
 class EmployeeListSerializer(serializers.ModelSerializer):
     class Meta:
@@ -823,7 +921,7 @@ class ProviderAvailabilitySerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    
+
 
     class Meta:
         model = ProviderAvailability
@@ -850,7 +948,7 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    
+
 
     employee_working_schedule_uuid = serializers.UUIDField(
         read_only=True,
@@ -980,4 +1078,89 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
 
         return EmployeeWorkingSchedule.objects.create(
             **validated_data
+        )
+
+class BusinessApplicationDocumentsSerializer(
+    serializers.Serializer
+):
+    pan_document = serializers.SerializerMethodField()
+    aadhaar_document = serializers.SerializerMethodField()
+    internal_store_photo = serializers.SerializerMethodField()
+    external_store_photo = serializers.SerializerMethodField()
+    cancelled_gst_bill_book_photo = serializers.SerializerMethodField()
+    logo = serializers.SerializerMethodField()
+
+    def _get_document_data(
+        self,
+        file_field,
+        document_name,
+        document_type,
+        upload_path,
+    ):
+        if not file_field or not document_name:
+            return None
+
+        request = self.context.get("request")
+
+        # Use the original filename stored separately in DB.
+        file_name = document_name.strip()
+
+        # Construct the actual media path.
+        url = f"/media/{upload_path}{file_name}"
+
+        if request:
+            url = request.build_absolute_uri(url)
+
+        return {
+            "url": url,
+            "name": file_name,
+            "type": document_type or "",
+        }
+
+    def get_pan_document(self, obj):
+        return self._get_document_data(
+            obj.pan_document,
+            obj.pan_document_name,
+            obj.pan_document_type,
+            "business_applications/pan/",
+        )
+
+    def get_aadhaar_document(self, obj):
+        return self._get_document_data(
+            obj.aadhaar_document,
+            obj.aadhaar_document_name,
+            obj.aadhaar_document_type,
+            "business_applications/aadhaar/",
+        )
+
+    def get_internal_store_photo(self, obj):
+        return self._get_document_data(
+            obj.internal_store_photo,
+            obj.internal_store_name,
+            obj.internal_store_type,
+            "business_applications/store/internal/",
+        )
+
+    def get_external_store_photo(self, obj):
+        return self._get_document_data(
+            obj.external_store_photo,
+            obj.external_store_name,
+            obj.external_store_type,
+            "business_applications/store/external/",
+        )
+
+    def get_cancelled_gst_bill_book_photo(self, obj):
+        return self._get_document_data(
+            obj.cancelled_gst_bill_book_photo,
+            obj.cancelled_gst_bill_book_name,
+            obj.cancelled_gst_bill_book_type,
+            "business_applications/gst_bill_book/",
+        )
+
+    def get_logo(self, obj):
+        return self._get_document_data(
+            obj.logo,
+            obj.logo_name,
+            obj.logo_type,
+            "business_applications/logo/",
         )

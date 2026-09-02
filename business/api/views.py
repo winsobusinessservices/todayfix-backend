@@ -43,6 +43,7 @@ from .serializers import (
     EmployeeUpdateSerializer,
     ProviderAvailabilitySerializer,
     EmployeeWorkingScheduleSerializer,
+    BusinessApplicationDocumentsSerializer,
 )
 
 from rest_framework.generics import (
@@ -900,6 +901,9 @@ class BusinessProfileListAPIView(APIView):
             BusinessProfileSerializer(
                 profiles,
                 many=True,
+                context={
+                    "request": request,
+                },
             )
         )
 
@@ -1057,7 +1061,6 @@ class EmployeeListAPIView(ListAPIView):
 
         return Employee.objects.filter(
             business=business,
-            is_active=True,
         ).order_by("-created_at")
 
 #=================================================================
@@ -1200,7 +1203,7 @@ class EmployeeDeleteAPIView(APIView):
 # ============================================================
 
 @extend_schema(
-    tags=["Provider Availability"],
+    tags=["Service Provider Availability"],
     summary="Create Provider Availability",
     request=ProviderAvailabilitySerializer,
     responses={201: ProviderAvailabilitySerializer},
@@ -1331,7 +1334,7 @@ class ProviderAvailabilityCreateAPIView(APIView):
 # ============================================================
 
 @extend_schema(
-    tags=["Provider Availability"],
+    tags=["Service Provider Availability"],
     summary="Update Provider Availability",
     request=ProviderAvailabilitySerializer,
     responses={200: ProviderAvailabilitySerializer},
@@ -1416,7 +1419,7 @@ class ProviderAvailabilityUpdateAPIView(APIView):
 # ============================================================
 
 @extend_schema(
-    tags=["Provider Availability"],
+    tags=["Service Provider Availability"],
     summary="List Provider Availability",
     responses={
         200: ProviderAvailabilitySerializer(many=True),
@@ -1821,6 +1824,101 @@ class EmployeeWorkingScheduleDeleteAPIView(APIView):
                     "Provider working schedule "
                     "deactivated successfully."
                 ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+# =========================================================
+# VIEW BUSINESS APPLICATION DOCUMENTS
+# ADMIN + BUSINESS OWNER
+# =========================================================
+class BusinessApplicationDocumentsAPIView(APIView):
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Application"],
+        summary="View business application documents",
+        description=(
+            "Admins can view documents of any business application. "
+            "A business owner can view documents of their own application."
+        ),
+        responses=BusinessApplicationDocumentsSerializer,
+    )
+    def get(
+        self,
+        request,
+        business_application_uuid,
+    ):
+        application = get_object_or_404(
+            BusinessApplication.objects
+            .select_related(
+                "user",
+                "identity",
+            ),
+            business_application_uuid=business_application_uuid,
+        )
+
+        # -------------------------------------------------
+        # ACCESS CHECK
+        # -------------------------------------------------
+
+        is_admin = (
+            request.user.role == UserRole.ADMIN
+        )
+
+        is_owner = (
+            application.user_id == request.user.id
+        )
+
+        if not is_admin and not is_owner:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You do not have permission to "
+                        "view these documents."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -------------------------------------------------
+        # DOCUMENTS
+        # -------------------------------------------------
+
+        try:
+            identity = application.identity
+
+        except BusinessIdentity.DoesNotExist:
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "No documents have been uploaded "
+                        "for this business application."
+                    ),
+                    "data": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = BusinessApplicationDocumentsSerializer(
+            identity,
+            context={
+                "request": request,
+            },
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business application documents "
+                    "fetched successfully."
+                ),
+                "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )

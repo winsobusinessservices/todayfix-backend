@@ -219,7 +219,8 @@ class Address(models.Model):
     )
 
     location = models.CharField(
-        max_length=255,
+        max_length=2000,
+        help_text="Google Maps iframe/embed location.",
         null=True,
         blank=True,
     )

@@ -9,6 +9,7 @@ from bookings.choices import BookingSlotType
 
 from django.utils import timezone
 
+from instant_bookings.models import InstantBooking
 
 # =============================================================
 # NESTED SERIALIZERS (READ ONLY)
@@ -203,3 +204,114 @@ class BookingEmployeeReassignSerializer(serializers.Serializer):
     old_employee_uuid = serializers.UUIDField()
 
     new_employee_uuid = serializers.UUIDField()
+
+# =============================================================
+# UNIFIED BOOKING HISTORY SERIALIZER
+# =============================================================
+
+class BookingHistorySerializer(serializers.Serializer):
+
+    booking_type = serializers.SerializerMethodField()
+    booking_uuid = serializers.SerializerMethodField()
+
+    user = BookingUserSerializer(read_only=True)
+    business = serializers.SerializerMethodField()
+    service = serializers.SerializerMethodField()
+    address = BookingAddressSerializer(read_only=True)
+    employee = serializers.SerializerMethodField()
+    booking_employees = serializers.SerializerMethodField()
+
+    scheduled_date = serializers.SerializerMethodField()
+    scheduled_time = serializers.SerializerMethodField()
+    slot_type = serializers.SerializerMethodField()
+
+    price = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
+
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    def get_booking_type(self, obj):
+        if isinstance(obj, InstantBooking):
+            return "INSTANT"
+        return "SCHEDULED"
+
+    def get_booking_uuid(self, obj):
+        if isinstance(obj, InstantBooking):
+            return str(obj.instant_booking_uuid)
+        return str(obj.uuid)
+
+    def get_business(self, obj):
+        if isinstance(obj, InstantBooking):
+            business = obj.assigned_business
+        else:
+            business = obj.business
+
+        if not business:
+            return None
+
+        return BookingBusinessSerializer(business).data
+
+    def get_service(self, obj):
+        if isinstance(obj, InstantBooking):
+            service = obj.selected_service
+
+            if not service:
+                return {
+                    "service_uuid": None,
+                    "name": obj.requested_service_name,
+                    "duration": None,
+                }
+        else:
+            service = obj.service
+
+        return BookingServiceSerializer(service).data
+
+    def get_employee(self, obj):
+        if isinstance(obj, InstantBooking):
+            employee = obj.assigned_employee
+        else:
+            employee = obj.employee
+
+        if not employee:
+            return None
+
+        return BookingEmployeeSerializer(employee).data
+
+    def get_booking_employees(self, obj):
+        if isinstance(obj, InstantBooking):
+            return []
+
+        return BookingEmployeeAssignmentSerializer(
+            obj.booking_employees.all(),
+            many=True,
+        ).data
+
+    def get_scheduled_date(self, obj):
+        if isinstance(obj, InstantBooking):
+            return None
+        return obj.scheduled_date
+
+    def get_scheduled_time(self, obj):
+        if isinstance(obj, InstantBooking):
+            return None
+        return obj.scheduled_time
+
+    def get_slot_type(self, obj):
+        if isinstance(obj, InstantBooking):
+            return None
+        return obj.slot_type
+
+    def get_price(self, obj):
+        if isinstance(obj, InstantBooking):
+            return obj.total_payable_price
+        return obj.price
+
+    def get_status(self, obj):
+        return obj.status
+
+    def get_notes(self, obj):
+        if isinstance(obj, InstantBooking):
+            return obj.customer_note
+        return obj.notes
