@@ -14,12 +14,21 @@ from bookings.permissions import (
     IsBookingUser,
     IsBookingBusiness,
 )
+
+from bookings.choices import BookingStatus
+from instant_bookings.models import InstantBooking, InstantBookingStatus
+
+from instant_bookings.api.views import expire_booking_if_required
+
+from rest_framework.pagination import PageNumberPagination
+
 from bookings.services import BookingService
 from .serializers import (
     BookingReadSerializer,
     BookingCreateSerializer,
     BookingEmployeeAssignSerializer,
     BookingEmployeeReassignSerializer,
+    BookingHistorySerializer,
 )
 
 from django.shortcuts import get_object_or_404
@@ -30,7 +39,7 @@ from django.utils.dateparse import parse_date
 from business.choices import BusinessType
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Check Booking Slot Availability",
     description=(
         "Check Morning, Afternoon and Evening availability "
@@ -133,7 +142,7 @@ class BookingSlotAvailabilityAPIView(APIView):
 # =============================================================
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Create Booking",
     description="Create a new booking as a user.",
     request=BookingCreateSerializer,
@@ -171,7 +180,7 @@ class UserBookingCreateAPIView(APIView):
         )
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Assign Employee to Booking",
     request=BookingEmployeeAssignSerializer,
     responses={200: BookingReadSerializer},
@@ -290,7 +299,7 @@ class BusinessBookingAssignEmployeeAPIView(APIView):
         )
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Reassign Employee for Booking",
     description=(
         "Replace an employee currently assigned to a booking "
@@ -451,7 +460,7 @@ class BusinessBookingReassignEmployeeAPIView(APIView):
         )
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="List My Bookings",
     description="List all bookings for the authenticated user.",
     responses={200: BookingReadSerializer(many=True)},
@@ -467,9 +476,217 @@ class UserBookingListAPIView(ListAPIView):
             "user", "business", "service", "address"
         )
 
+@extend_schema(
+    tags=["Booking History"],
+    summary="List My Booking History",
+    description=(
+        "List scheduled and instant bookings for "
+        "the authenticated user."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="page",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="A page number within the paginated result set.",
+        ),
+    ],
+    responses={200: BookingHistorySerializer(many=True)},
+)
+class UserBookingHistoryAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+
+        scheduled_bookings = list(
+            Booking.objects.filter(
+                status=BookingStatus.PENDING,
+            ).select_related(
+                "user",
+                "business",
+                "service",
+                "address",
+                "employee",
+            ).prefetch_related(
+                "booking_employees__employee"
+            )
+        )
+
+        instant_bookings = list(
+            InstantBooking.objects.filter(
+                customer=request.user
+            ).select_related(
+                "customer",
+                "category",
+                "subcategory",
+                "address",
+                "selected_service",
+                "assigned_business",
+                "assigned_employee",
+            )
+        )
+
+        bookings = (
+            scheduled_bookings
+            + instant_bookings
+        )
+
+        bookings.sort(
+            key=lambda booking: booking.created_at,
+            reverse=True,
+        )
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+
+        page = paginator.paginate_queryset(
+            bookings,
+            request,
+            view=self,
+        )
+
+        serializer = BookingHistorySerializer(
+            page,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            {
+                "success": True,
+                "message": (
+                    "Booking history fetched successfully."
+                ),
+                "data": serializer.data,
+            }
+        )
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Booking History"],
+    summary="List My Pending Bookings",
+    description=(
+        "List only pending scheduled and instant bookings "
+        "for the authenticated customer."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="page",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="A page number within the paginated result set.",
+        ),
+    ],
+    responses={200: BookingHistorySerializer(many=True)},
+)
+class UserPendingBookingHistoryAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+
+        # -------------------------------------------------
+        # SCHEDULED PENDING BOOKINGS
+        # -------------------------------------------------
+
+        scheduled_bookings = list(
+            Booking.objects.filter(
+                user=request.user,
+                status=BookingStatus.PENDING,
+            ).select_related(
+                "user",
+                "business",
+                "service",
+                "address",
+                "employee",
+            ).prefetch_related(
+                "booking_employees__employee"
+            )
+        )
+
+        # -------------------------------------------------
+        # INSTANT PENDING BOOKINGS
+        # -------------------------------------------------
+
+        instant_bookings = list(
+            InstantBooking.objects.filter(
+                customer=request.user,
+                status__in=[
+                    InstantBookingStatus.SEARCHING,
+                    InstantBookingStatus.TIP_REQUIRED,
+                ],
+            ).select_related(
+                "customer",
+                "category",
+                "subcategory",
+                "address",
+                "selected_service",
+                "assigned_business",
+                "assigned_employee",
+            )
+        )
+
+        # -------------------------------------------------
+        # EXPIRE INSTANT BOOKINGS IF 15-MINUTE DEADLINE
+        # HAS PASSED
+        # -------------------------------------------------
+
+        active_instant_bookings = []
+
+        for booking in instant_bookings:
+            booking = expire_booking_if_required(booking)
+
+            if booking.status in [
+                InstantBookingStatus.SEARCHING,
+                InstantBookingStatus.TIP_REQUIRED,
+            ]:
+                active_instant_bookings.append(booking)
+
+        # -------------------------------------------------
+        # COMBINE SCHEDULED + INSTANT
+        # -------------------------------------------------
+
+        bookings = (
+            scheduled_bookings
+            + active_instant_bookings
+        )
+
+        bookings.sort(
+            key=lambda booking: booking.created_at,
+            reverse=True,
+        )
+
+        # -------------------------------------------------
+        # PAGINATION
+        # -------------------------------------------------
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+
+        page = paginator.paginate_queryset(
+            bookings,
+            request,
+            view=self,
+        )
+
+        serializer = BookingHistorySerializer(
+            page,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            {
+                "success": True,
+                "message": (
+                    "Pending bookings fetched successfully."
+                ),
+                "data": serializer.data,
+            }
+        )
+
+@extend_schema(
+    tags=["Scheduled Bookings"],
     summary="My Booking Detail",
     description="Get details of a specific user booking.",
     responses={200: BookingReadSerializer},
@@ -488,7 +705,7 @@ class UserBookingDetailAPIView(RetrieveAPIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Cancel Booking",
     description="Cancel a pending or confirmed booking.",
     responses={200: BookingReadSerializer},
@@ -530,7 +747,7 @@ class UserBookingCancelAPIView(APIView):
 # =============================================================
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="List Business Bookings",
     description="List all bookings for the authenticated user's business.",
     responses={200: BookingReadSerializer(many=True)},
@@ -548,7 +765,7 @@ class BusinessBookingListAPIView(ListAPIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Business Booking Detail",
     description="Get details of a specific business booking.",
     responses={200: BookingReadSerializer},
@@ -603,7 +820,7 @@ class BaseBusinessTransitionAPIView(APIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Accept Booking",
     description="Business accepts a pending booking.",
     responses={200: BookingReadSerializer},
@@ -614,7 +831,7 @@ class BusinessBookingAcceptAPIView(BaseBusinessTransitionAPIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Reject Booking",
     description="Business rejects a pending booking.",
     responses={200: BookingReadSerializer},
@@ -625,7 +842,7 @@ class BusinessBookingRejectAPIView(BaseBusinessTransitionAPIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Start Booking",
     description="Business marks a confirmed booking as in-progress.",
     responses={200: BookingReadSerializer},
@@ -636,7 +853,7 @@ class BusinessBookingStartAPIView(BaseBusinessTransitionAPIView):
 
 
 @extend_schema(
-    tags=["Bookings"],
+    tags=["Scheduled Bookings"],
     summary="Complete Booking",
     description="Business marks an in-progress booking as completed.",
     responses={200: BookingReadSerializer},

@@ -680,7 +680,8 @@ class BusinessProfile(TimeStampedModel):
     )
 
     location = models.CharField(
-        max_length=255,
+        max_length=2000,
+        help_text="Google Maps iframe/embed location.",
     )
 
     name = models.CharField(
