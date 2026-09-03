@@ -494,6 +494,9 @@ class BusinessInstantBookingOfferAcceptAPIView(APIView):
             ]
         )
 
+        from chat_service.services import ChatService
+        ChatService.get_or_create_conversation_for_instant_booking(booking)
+
         return Response(
             {
                 "success": True,

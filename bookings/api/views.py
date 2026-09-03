@@ -827,7 +827,10 @@ class BaseBusinessTransitionAPIView(APIView):
 )
 class BusinessBookingAcceptAPIView(BaseBusinessTransitionAPIView):
     def perform_transition(self, booking):
-        return BookingService.accept_booking(booking)
+        updated_booking = BookingService.accept_booking(booking)
+        from chat_service.services import ChatService
+        ChatService.get_or_create_conversation_for_scheduled_booking(updated_booking)
+        return updated_booking
 
 
 @extend_schema(

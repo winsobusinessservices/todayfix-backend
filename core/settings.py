@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
+    "channels",
 
     # Local apps
     "accounts",
@@ -58,6 +59,8 @@ INSTALLED_APPS = [
     "services",
     "bookings",
     "instant_bookings",
+    "chat_service",
+    "calling_service",
 ]
 
 
@@ -83,6 +86,7 @@ MIDDLEWARE = [
 ROOT_URLCONF = "core.urls"
 
 WSGI_APPLICATION = "core.wsgi.application"
+ASGI_APPLICATION = "core.asgi.application"
 
 
 # ============================================================
@@ -370,3 +374,18 @@ FAST2SMS_API_KEY = os.getenv(
     "FAST2SMS_API_KEY",
     "",
 )
+
+# ============================================================
+# CHANNELS
+# ============================================================
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(os.getenv("REDIS_HOST", "localhost"), int(os.getenv("REDIS_PORT", 6379)))],
+        },
+    },
+}
+
+CHAT_RETENTION_DAYS = int(os.getenv("CHAT_RETENTION_DAYS", 90))
+CALL_HISTORY_RETENTION_DAYS = int(os.getenv("CALL_HISTORY_RETENTION_DAYS", 90))

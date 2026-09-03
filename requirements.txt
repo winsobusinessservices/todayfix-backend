@@ -1,4 +1,4 @@
-﻿Django==6.0.8
+Django==6.0.8
 djangorestframework==3.17.1
 djangorestframework-simplejwt==5.5.1
 drf-spectacular==0.30.0
@@ -21,3 +21,6 @@ python-dotenv
 
 google-auth
 requests
+channels==4.0.0
+daphne==4.0.0
+channels-redis==4.1.0
