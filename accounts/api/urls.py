@@ -24,7 +24,7 @@ from .views import (
     LoginVerifyOTPAPIView,
 
     GoogleLoginAPIView,
-
+    ProfilePictureViewAPIView,
     
 )
 
@@ -172,6 +172,17 @@ urlpatterns = [
         UnifiedPasswordResetView.as_view(),
         name="password-reset",
     ),
+
+    # =====================================================
+    # PROFILE PICTURE
+    # =====================================================
+
+    path(
+        "users/<uuid:user_uuid>/profile-picture/",
+        ProfilePictureViewAPIView.as_view(),
+        name="profile-picture-view",
+    ),
+
 ]
 
 

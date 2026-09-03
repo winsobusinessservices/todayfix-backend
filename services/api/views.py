@@ -6,6 +6,8 @@ from rest_framework.generics import (
     UpdateAPIView,
 )
 
+import logging
+
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import (
     AllowAny,
@@ -14,7 +16,13 @@ from rest_framework.permissions import (
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.contrib.postgres.search import (
+    SearchVector,
+    SearchQuery,
+    SearchRank,
+    TrigramSimilarity,
+)
 
 from drf_spectacular.utils import (
     extend_schema,
@@ -22,7 +30,7 @@ from drf_spectacular.utils import (
 )
 
 from business.models import BusinessProfile
-from services.models import Service, ServiceEmployee, ServiceType, Unit
+from services.models import Service, ServiceEmployee, ServiceType, Unit, SearchLog
 from services.permissions import (
     IsApprovedBusiness,
     IsServiceOwner,
@@ -42,6 +50,11 @@ from .serializers import (
     UnitSerializer,
     MyServiceReadSerializer,
 )
+
+from services.search_utils import expand_search_words
+
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================
@@ -74,15 +87,26 @@ class ServiceListAPIView(ListAPIView):
             )
         )
 
-        # Admins can see both active and inactive services
+        user = self.request.user
+
+        # Admin can see all services
         if (
-            self.request.user.is_authenticated
-            and getattr(self.request.user, "role", None)
-            == UserRole.ADMIN
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.ADMIN
         ):
             return qs
 
-        # Everyone else can see only active services
+        # Logged-in business owner can see
+        # active + inactive services of their own business
+        if (
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.BUSINESS
+        ):
+            return qs.filter(
+                business__owner=user,
+            )
+
+        # Public users / normal users see only active services
         return qs.filter(is_active=True)
 
 
@@ -105,7 +129,7 @@ class ServiceDetailAPIView(RetrieveAPIView):
     lookup_field = "service_uuid"
 
     def get_queryset(self):
-        return (
+        qs = (
             Service.objects
             .select_related(
                 "business",
@@ -113,6 +137,28 @@ class ServiceDetailAPIView(RetrieveAPIView):
                 "subcategory",
             )
         )
+
+        user = self.request.user
+
+        # Admin can view any service
+        if (
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.ADMIN
+        ):
+            return qs
+
+        # Business owner can view their own
+        # active + inactive services
+        if (
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.BUSINESS
+        ):
+            return qs.filter(
+                business__owner=user,
+            )
+
+        # Everyone else can only view active services
+        return qs.filter(is_active=True)
 
 
 # =============================================================
@@ -359,6 +405,40 @@ class ServiceSearchAPIView(ListAPIView):
     serializer_class = ServiceReadSerializer
     permission_classes = [AllowAny]
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        search_term = (
+            request.query_params.get("search") or ""
+        ).strip()
+
+        if search_term:
+            result_count = queryset.count()
+
+            try:
+                SearchLog.objects.create(
+                    search_term=search_term,
+                    result_count=result_count,
+                    user=(
+                        request.user
+                        if request.user.is_authenticated
+                        else None
+                    ),
+                )
+            except Exception:
+                # Logging must never break the actual search.
+                logger.exception(
+                    "Failed to write SearchLog for term: %s",
+                    search_term,
+                )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def get_queryset(self):
         qs = (
@@ -370,15 +450,27 @@ class ServiceSearchAPIView(ListAPIView):
             )
         )
 
-        # Admins can see both active and inactive services
-        if not (
-            self.request.user.is_authenticated
-            and getattr(
-                self.request.user,
-                "role",
-                None,
-            ) == UserRole.ADMIN
+        user = self.request.user
+
+        # Admin can search all services
+        if (
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.ADMIN
         ):
+            pass
+
+        # Business owner can search
+        # active + inactive services belonging to their business
+        elif (
+            user.is_authenticated
+            and getattr(user, "role", None) == UserRole.BUSINESS
+        ):
+            qs = qs.filter(
+                business__owner=user,
+            )
+
+        # Public users / normal users can search only active services
+        else:
             qs = qs.filter(is_active=True)
 
         params = self.request.query_params
@@ -443,18 +535,52 @@ class ServiceSearchAPIView(ListAPIView):
                     self.request.user,
                     "role",
                     None,
-                ) == UserRole.ADMIN
+                ) in [UserRole.ADMIN, UserRole.BUSINESS]
             ):
                 qs = qs.filter(is_active=False)
 
 
         # Keyword search
+        # -------------------------------------------------
+        # Combines two techniques:
+        #   1. Full-text search: matches individual WORDS
+        #      (not the whole phrase), so word order and
+        #      extra words don't cause a miss. Ranked by
+        #      how many words matched.
+        #   2. Trigram similarity: catches typos / partial
+        #      spellings (e.g. "fann instal") as a fallback,
+        #      even when full-text finds nothing.
+        # -------------------------------------------------
         search = params.get("search")
         if search:
-            qs = qs.filter(
-                Q(name__icontains=search)
-                | Q(description__icontains=search)
+            search = search.strip()
+
+        if search:
+            words = [w for w in search.split() if w]
+
+            # Add generic English synonyms (e.g. "install" -> "set up").
+            # Falls back to just the original words if the corpus
+            # isn't downloaded yet or nltk isn't installed.
+            expanded_words = expand_search_words(words)
+
+            expanded_iter = iter(expanded_words)
+            search_query = SearchQuery(
+                next(expanded_iter), search_type="plain"
             )
+            for word in expanded_iter:
+                search_query |= SearchQuery(word, search_type="plain")
+
+            search_vector = (
+                SearchVector("name", weight="A")
+                + SearchVector("description", weight="B")
+            )
+
+            qs = qs.annotate(
+                rank=SearchRank(search_vector, search_query),
+                similarity=TrigramSimilarity("name", search),
+            ).filter(
+                Q(rank__gte=0.01) | Q(similarity__gte=0.15)
+            ).order_by("-rank", "-similarity")
 
         return qs
 
@@ -1027,6 +1153,8 @@ class SubCategoryServiceListAPIView(ListAPIView):
 
     def get_queryset(self):
         subcategory_uuid = self.kwargs["subCat_uuid"]
+
+
 
         return (
             Service.objects

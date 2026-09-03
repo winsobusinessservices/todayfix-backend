@@ -1055,3 +1055,265 @@ class EmployeeWorkingSchedule(TimeStampedModel):
             f"{self.slot_type} - "
             f"{self.start_time}-{self.end_time}"
         )
+
+# =================================================================================================================
+#                                   Business Upgrade Request Model
+# =================================================================================================================
+
+class BusinessUpgradeRequest(TimeStampedModel):
+    """
+    Request submitted by an approved BUSINESS owner to change
+    their BusinessProfile.business_type.
+
+    Allowed transitions (validated in the service layer, not here):
+        INDIVIDUAL -> COMPANY
+        INDIVIDUAL -> INVESTOR
+        COMPANY    -> INVESTOR
+        COMPANY    -> INDIVIDUAL   (downgrade)
+        INVESTOR   -> COMPANY      (downgrade)
+        INVESTOR   -> INDIVIDUAL   (downgrade)
+    """
+
+    business_upgrade_request_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    business = models.ForeignKey(
+        BusinessProfile,
+        on_delete=models.CASCADE,
+        related_name="upgrade_requests",
+    )
+
+    current_business_type = models.CharField(
+        max_length=20,
+        choices=BusinessType.choices,
+    )
+
+    requested_business_type = models.CharField(
+        max_length=20,
+        choices=BusinessType.choices,
+    )
+
+    # Only meaningful for COMPANY <-> INVESTOR transitions.
+    # Left null when the transition involves INDIVIDUAL,
+    # since no employees exist in that case.
+    keep_employees_and_schedules = models.BooleanField(
+        null=True,
+        blank=True,
+    )
+
+    # False  = reuse the existing verified BusinessBankAccount as-is.
+    # True   = new bank details were submitted and must be re-verified.
+    bank_details_changed = models.BooleanField(
+        default=False,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=BusinessApplicationStatus.choices,
+        default=BusinessApplicationStatus.PENDING,
+        db_index=True,
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_business_upgrade_requests",
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    rejection_reason = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business"],
+                condition=Q(
+                    status=BusinessApplicationStatus.PENDING
+                ),
+                name="unique_pending_business_upgrade_request",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.current_business_type
+            == self.requested_business_type
+        ):
+            raise ValidationError(
+                {
+                    "requested_business_type": (
+                        "Requested business type must be "
+                        "different from the current business type."
+                    )
+                }
+            )
+
+    def __str__(self):
+        return (
+            f"{self.business_upgrade_request_uuid} - "
+            f"{self.current_business_type} -> "
+            f"{self.requested_business_type} - "
+            f"{self.status}"
+        )
+
+
+class BusinessUpgradeIdentity(TimeStampedModel):
+    """
+    Identity/registration documents submitted with an upgrade
+    request. Only fields missing from the business's existing
+    BusinessIdentity need to be filled here; the rest are merged
+    in at approval time.
+
+    Field shape intentionally mirrors BusinessIdentity.
+    """
+
+    business_upgrade_identity_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    request = models.OneToOneField(
+        BusinessUpgradeRequest,
+        on_delete=models.CASCADE,
+        related_name="identity",
+    )
+
+    pan_number = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+    )
+
+    pan_document = models.FileField(
+        upload_to="business_upgrade_requests/pan/",
+        null=True,
+        blank=True,
+    )
+
+    aadhaar_number = models.CharField(
+        max_length=12,
+        blank=True,
+        default="",
+    )
+
+    aadhaar_document = models.FileField(
+        upload_to="business_upgrade_requests/aadhaar/",
+        null=True,
+        blank=True,
+    )
+
+    gst_number = models.CharField(
+        max_length=15,
+        blank=True,
+        default="",
+    )
+
+    udyam_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    labour_license_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    bbmp_license_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    food_license_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    internal_store_photo = models.FileField(
+        upload_to="business_upgrade_requests/store/internal/",
+        null=True,
+        blank=True,
+    )
+
+    external_store_photo = models.FileField(
+        upload_to="business_upgrade_requests/store/external/",
+        null=True,
+        blank=True,
+    )
+
+    cancelled_gst_bill_book_photo = models.FileField(
+        upload_to="business_upgrade_requests/gst_bill_book/",
+        null=True,
+        blank=True,
+    )
+
+    def __str__(self):
+        return (
+            f"Upgrade Identity - "
+            f"{self.request.business_upgrade_request_uuid}"
+        )
+
+
+class BusinessUpgradeBankAccount(TimeStampedModel):
+    """
+    New bank details submitted with an upgrade request, only
+    created when BusinessUpgradeRequest.bank_details_changed=True.
+
+    Field shape intentionally mirrors BusinessBankAccount.
+    """
+
+    request = models.OneToOneField(
+        BusinessUpgradeRequest,
+        on_delete=models.CASCADE,
+        related_name="bank_account",
+    )
+
+    account_holder_name = models.CharField(
+        max_length=150,
+    )
+
+    account_number = models.CharField(
+        max_length=30,
+    )
+
+    ifsc_code = models.CharField(
+        max_length=11,
+    )
+
+    bank_name = models.CharField(
+        max_length=150,
+    )
+
+    branch_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    def __str__(self):
+        return (
+            f"Upgrade Bank Account - "
+            f"{self.request.business_upgrade_request_uuid}"
+        )

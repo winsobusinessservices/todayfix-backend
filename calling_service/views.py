@@ -9,12 +9,12 @@ from .permissions import IsCallParticipant
 from .services import CallingService
 
 @extend_schema_view(
-    list=extend_schema(summary="List call history", tags=["Calling - Calls"]),
-    create=extend_schema(summary="Initiate a call", tags=["Calling - Calls"]),
-    retrieve=extend_schema(summary="Retrieve call details", tags=["Calling - Calls"]),
-    update=extend_schema(summary="Update call", tags=["Calling - Calls"]),
-    partial_update=extend_schema(summary="Partial update call", tags=["Calling - Calls"]),
-    destroy=extend_schema(summary="Delete call", tags=["Calling - Calls"]),
+    list=extend_schema(summary="List call history", tags=["Calling - Service"]),
+    create=extend_schema(summary="Initiate a call", tags=["Calling - Service"]),
+    retrieve=extend_schema(summary="Retrieve call details", tags=["Calling - Service"]),
+    update=extend_schema(summary="Update call", tags=["Calling - Service"]),
+    partial_update=extend_schema(summary="Partial update call", tags=["Calling - Service"]),
+    destroy=extend_schema(summary="Delete call", tags=["Calling - Service"]),
 )
 class CallSessionViewSet(viewsets.ModelViewSet):
     """
@@ -37,7 +37,7 @@ class CallSessionViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Accept an incoming call",
-        tags=["Calling - Call Actions"],
+        tags=["Calling - Service"],
         request=None,
         responses={200: CallSessionSerializer}
     )
@@ -52,7 +52,7 @@ class CallSessionViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Reject an incoming call",
-        tags=["Calling - Call Actions"],
+        tags=["Calling - Service"],
         request=None,
         responses={200: CallSessionSerializer}
     )
@@ -67,7 +67,7 @@ class CallSessionViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="End an active call",
-        tags=["Calling - Call Actions"],
+        tags=["Calling - Service"],
         request=None,
         responses={200: CallSessionSerializer}
     )
@@ -82,7 +82,7 @@ class CallSessionViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Cancel an initiated call",
-        tags=["Calling - Call Actions"],
+        tags=["Calling - Service"],
         request=None,
         responses={200: CallSessionSerializer}
     )

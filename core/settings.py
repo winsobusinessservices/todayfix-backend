@@ -50,7 +50,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
-    "channels",
 
     # Local apps
     "accounts",
@@ -86,7 +85,6 @@ MIDDLEWARE = [
 ROOT_URLCONF = "core.urls"
 
 WSGI_APPLICATION = "core.wsgi.application"
-ASGI_APPLICATION = "core.asgi.application"
 
 
 # ============================================================
@@ -222,21 +220,64 @@ REST_FRAMEWORK = {
 # ============================================================
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
+
+def rename_stray_tags(result, generator, request, public):
+    """
+    Postprocessing hook: folds any operation tagged with a stray/auto-detected
+    tag name (e.g. endpoints that forgot an explicit @extend_schema(tags=[...]))
+    into a proper tag, and drops the stray tag from the tag list shown in
+    Swagger UI. Add more entries to rename_map as you find more strays.
+    """
+    rename_map = {
+        "auth": "Login",
+    }
+
+    for path_item in result.get("paths", {}).values():
+        for operation in path_item.values():
+            if isinstance(operation, dict) and "tags" in operation:
+                operation["tags"] = [
+                    rename_map.get(tag, tag) for tag in operation["tags"]
+                ]
+
+    result["tags"] = [
+        tag for tag in result.get("tags", [])
+        if tag["name"] not in rename_map
+    ]
+
+    return result
+
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "TodayFix Service API",
     "DESCRIPTION": "TodayFix.in Backend Service APIs",
-
+    "VERSION": "1.0.0",
 
     "SERVE_INCLUDE_SCHEMA": False,
 
+    # NOTE: these names must exactly match the strings used in each view's
+    # @extend_schema(tags=[...]). A tag listed here with no matching
+    # operation simply won't show up; an operation tagged with a name not
+    # listed here will still appear, just appended after these in
+    # auto-discovery order instead of the order defined below.
     "TAGS": [
         {
-            "name": "Authentication",
+            "name": "SignUp",
             "description":
-                "User registration, OTP, login, logout and password management.",
+                "User registration and OTP verification.",
         },
         {
-            "name": "Account",
+            "name": "Login",
+            "description":
+                "Login, OTP login, and Google login.",
+        },
+        {
+            "name": "Logout",
+            "description":
+                "Session/token logout.",
+        },
+        {
+            "name": "Accounts",
             "description":
                 "Authenticated user profile management.",
         },
@@ -251,6 +292,11 @@ SPECTACULAR_SETTINGS = {
                 "Submit and manage business upgrade applications.",
         },
         {
+            "name": "Business Upgrade Request",
+            "description":
+                "Business upgrade request workflow.",
+        },
+        {
             "name": "Business Administration",
             "description":
                 "Admin review, approval and rejection of business applications.",
@@ -261,14 +307,45 @@ SPECTACULAR_SETTINGS = {
                 "Business profile management.",
         },
         {
+            "name": "Business Employees",
+            "description":
+                "Business employee management.",
+        },
+        {
+            "name": "Service Provider Availability",
+            "description":
+                "Provider availability management.",
+        },
+        {
+            "name": "Provider Working Schedule",
+            "description":
+                "Provider working schedule management.",
+        },
+        {
             "name": "Categories",
             "description":
                 "Service category management.",
         },
         {
-            "name": "Subcategories",
+            "name": "SubCategories",
             "description":
                 "Service subcategory management.",
+        },
+
+        {
+            "name": "SubCategories",
+            "description":
+                "Service subcategory management.",
+        },
+        {
+            "name": "Chat - Service",
+            "description":
+                "In-app chat conversations and messages.",
+        },
+        {
+            "name": "Calling - Service",
+            "description":
+                "Audio/video call session management.",
         },
         {
             "name": "Services",
@@ -276,9 +353,34 @@ SPECTACULAR_SETTINGS = {
                 "Service catalog and business service management.",
         },
         {
-            "name": "Bookings",
+            "name": "Services",
             "description":
-                "User and business booking management.",
+                "Service catalog and business service management.",
+        },
+        {
+            "name": "Service Types",
+            "description":
+                "Service type management.",
+        },
+        {
+            "name": "Units",
+            "description":
+                "Service unit management.",
+        },
+        {
+            "name": "Scheduled Bookings",
+            "description":
+                "User and business scheduled booking management.",
+        },
+        {
+            "name": "Booking History",
+            "description":
+                "Booking history.",
+        },
+        {
+            "name": "Instant Bookings",
+            "description":
+                "Instant booking management.",
         },
     ],
 
@@ -286,6 +388,11 @@ SPECTACULAR_SETTINGS = {
         {
             "BearerAuth": [],
         }
+    ],
+
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "core.settings.rename_stray_tags",
     ],
 }
 
@@ -374,18 +481,3 @@ FAST2SMS_API_KEY = os.getenv(
     "FAST2SMS_API_KEY",
     "",
 )
-
-# ============================================================
-# CHANNELS
-# ============================================================
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [(os.getenv("REDIS_HOST", "localhost"), int(os.getenv("REDIS_PORT", 6379)))],
-        },
-    },
-}
-
-CHAT_RETENTION_DAYS = int(os.getenv("CHAT_RETENTION_DAYS", 90))
-CALL_HISTORY_RETENTION_DAYS = int(os.getenv("CALL_HISTORY_RETENTION_DAYS", 90))

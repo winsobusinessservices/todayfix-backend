@@ -4,6 +4,8 @@ from rest_framework.compat import requests
 from accounts.api.serializers import GoogleLoginSerializer
 import logging
 from accounts.choices import UserRole
+from accounts.document_utils import get_profile_picture_url
+from common.document_utils import serve_document_file
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status
@@ -249,11 +251,7 @@ class VerifyEmailAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
-                        "profileImage": (
-                            user.profile_picture.url
-                            if user.profile_picture
-                            else ""
-                        )
+                        "profileImage": get_profile_picture_url(user, request)
                     },
                 },
             },
@@ -1391,3 +1389,33 @@ class GoogleLoginAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# =========================================================
+# PROFILE PICTURE - VIEW (STREAMED)
+# =========================================================
+
+class ProfilePictureViewAPIView(APIView):
+    """
+    Streams a user's profile picture directly, instead of a raw
+    /media/ URL. Any logged-in user can view any other user's
+    profile picture (e.g. customer viewing a business owner's
+    photo) - just not anonymous/logged-out access.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Accounts"],
+        summary="View a user's profile picture",
+    )
+    def get(self, request, user_uuid):
+
+        user = get_object_or_404(
+            CustomUser,
+            user_uuid=user_uuid,
+        )
+
+        return serve_document_file(user.profile_picture)
