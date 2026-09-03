@@ -308,55 +308,8 @@ class SubCategoryDetailAPIView(APIView):
             AllowAny(),
         ]
 
-    @extend_schema(
-        tags=["SubCategories"],
-        summary="Get subcategory",
-        responses=SubCategorySerializer,
-    )
-    def get(self, request, subCat_uuid):
 
-        subcategory = get_object_or_404(
-            SubCategory.objects.select_related(
-                "category"
-            ),
-            subCat_uuid=subCat_uuid,
-        )
 
-        # Non-admins can only view active subcategories
-        if (
-            getattr(request.user, "role", None) != UserRole.ADMIN
-            and not subcategory.is_active
-        ):
-            return Response(
-                {
-                    "success": False,
-                    "message": "Subcategory not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Non-admins also cannot view a subcategory
-        # belonging to an inactive category
-        if (
-            getattr(request.user, "role", None) != UserRole.ADMIN
-            and not subcategory.category.is_active
-        ):
-            return Response(
-                {
-                    "success": False,
-                    "message": "Subcategory not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        serializer = SubCategorySerializer(
-            subcategory
-        )
-
-        return Response({
-            "success": True,
-            "data": serializer.data,
-        })
 
     @extend_schema(
         tags=["SubCategories"],
@@ -391,4 +344,51 @@ class SubCategoryDetailAPIView(APIView):
             ).data,
         })
 
-        
+class SubCategoryBySlugAPIView(APIView):
+
+    @extend_schema(
+        tags=["SubCategories"],
+        summary="Get subcategory by slug",
+        responses=SubCategorySerializer,
+    )
+    def get(self, request, slug):
+
+        subcategory = get_object_or_404(
+            SubCategory.objects.select_related("category"),
+            slug=slug,
+        )
+
+        # Non-admins can only view active subcategories
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Non-admins cannot view subcategory
+        # belonging to an inactive category
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.category.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = SubCategorySerializer(subcategory)
+
+        return Response({
+            "success": True,
+            "data": serializer.data,
+        })
+

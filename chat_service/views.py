@@ -10,11 +10,12 @@ from .services import ChatService
 from django.utils import timezone
 
 @extend_schema_view(
-    list=extend_schema(summary="List conversations", tags=["Chat - Conversations"]),
-    retrieve=extend_schema(summary="Retrieve conversation", tags=["Chat - Conversations"]),
-    update=extend_schema(summary="Update conversation", tags=["Chat - Conversations"]),
-    partial_update=extend_schema(summary="Partial update conversation", tags=["Chat - Conversations"]),
-    destroy=extend_schema(summary="Delete conversation", tags=["Chat - Conversations"]),
+    list=extend_schema(summary="List conversations", tags=["Chat - Service"]),
+    create=extend_schema(summary="Create conversation", tags=["Chat - Service"]),
+    retrieve=extend_schema(summary="Retrieve conversation", tags=["Chat - Service"]),
+    update=extend_schema(summary="Update conversation", tags=["Chat - Service"]),
+    partial_update=extend_schema(summary="Partial update conversation", tags=["Chat - Service"]),
+    destroy=extend_schema(summary="Delete conversation", tags=["Chat - Service"]),
 )
 class ConversationViewSet(viewsets.ModelViewSet):
     """
@@ -38,7 +39,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Mark conversation as read",
-        tags=["Chat - Read Status"],
+        tags=["Chat - Service"],
         request=None,
         responses={200: OpenApiResponse(description="Messages marked as read")}
     )
@@ -50,12 +51,12 @@ class ConversationViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(
-    list=extend_schema(summary="List messages in a conversation", tags=["Chat - Messages"]),
-    create=extend_schema(summary="Send a message", tags=["Chat - Messages"]),
-    retrieve=extend_schema(summary="Retrieve message", tags=["Chat - Messages"]),
-    update=extend_schema(summary="Update message", tags=["Chat - Messages"]),
-    partial_update=extend_schema(summary="Partial update message", tags=["Chat - Messages"]),
-    destroy=extend_schema(summary="Delete message", tags=["Chat - Messages"]),
+    list=extend_schema(summary="List messages in a conversation", tags=["Chat - Service"]),
+    create=extend_schema(summary="Send a message", tags=["Chat - Service"]),
+    retrieve=extend_schema(summary="Retrieve message", tags=["Chat - Service"]),
+    update=extend_schema(summary="Update message", tags=["Chat - Service"]),
+    partial_update=extend_schema(summary="Partial update message", tags=["Chat - Service"]),
+    destroy=extend_schema(summary="Delete message", tags=["Chat - Service"]),
 )
 class MessageViewSet(viewsets.ModelViewSet):
     """
@@ -103,7 +104,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Mark a specific message as read",
-        tags=["Chat - Read Status"],
+        tags=["Chat - Service"],
         request=None,
         responses={200: OpenApiResponse(description="Message marked as read")}
     )

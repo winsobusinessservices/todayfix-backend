@@ -21,17 +21,26 @@ from rest_framework.views import APIView
 from accounts.choices import UserRole
 
 from ..choices import BusinessApplicationStatus, BusinessType, EmployeeAvailabilityStatus
+
 from ..models import (
     BusinessApplication,
     BusinessBankAccount,
     BusinessIdentity,
     BusinessProfile,
+    BusinessUpgradeIdentity,
+    BusinessUpgradeRequest,
     Employee,
     ProviderAvailability,
     EmployeeWorkingSchedule,
 )
+
 from ..permissions import IsAdminRole, IsApprovedBusiness, IsEmployeeManagementAllowed
-from ..services import BusinessApplicationService
+from ..services import (
+    BusinessApplicationService,
+    BusinessUpgradeService,
+    get_current_business_identity,
+)
+from ..document_utils import serve_document_file
 
 from .serializers import (
     BusinessApplicationFullSerializer,
@@ -44,6 +53,9 @@ from .serializers import (
     ProviderAvailabilitySerializer,
     EmployeeWorkingScheduleSerializer,
     BusinessApplicationDocumentsSerializer,
+    BusinessUpgradeRequestSubmitSerializer,
+    BusinessUpgradeRequestFullSerializer,
+    BusinessUpgradeRequestDocumentsSerializer,
 )
 
 from rest_framework.generics import (
@@ -55,7 +67,7 @@ from rest_framework.generics import (
 
 from django.db.models import Q
 
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 
 
 # =========================================================
@@ -1919,6 +1931,609 @@ class BusinessApplicationDocumentsAPIView(APIView):
                     "fetched successfully."
                 ),
                 "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# BUSINESS APPLICATION - VIEW A SINGLE DOCUMENT (STREAMED)
+# =========================================================
+
+BUSINESS_APPLICATION_DOCUMENT_FIELDS = {
+    "pan": "pan_document",
+    "aadhaar": "aadhaar_document",
+    "internal_store_photo": "internal_store_photo",
+    "external_store_photo": "external_store_photo",
+    "gst_bill_book": "cancelled_gst_bill_book_photo",
+    "logo": "logo",
+}
+
+
+class BusinessApplicationDocumentViewAPIView(APIView):
+    """
+    Streams the actual file for ONE document belonging to a
+    business application, instead of returning a public URL.
+
+    Every request re-checks that the caller is either the
+    application's own owner or an Admin - there is no way to
+    view this file without a valid, permitted access token.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Application"],
+        summary="View a single business application document",
+        description=(
+            "Streams the requested document inline (PDF/image "
+            "preview) rather than returning a public link. "
+            "Admins can view any application's documents. "
+            "A business owner can only view their own."
+        ),
+    )
+    def get(
+        self,
+        request,
+        business_application_uuid,
+        document_key,
+    ):
+        field_name = BUSINESS_APPLICATION_DOCUMENT_FIELDS.get(
+            document_key
+        )
+
+        if field_name is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Unknown document type '{document_key}'. "
+                        f"Valid options: "
+                        f"{', '.join(BUSINESS_APPLICATION_DOCUMENT_FIELDS)}"
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        application = get_object_or_404(
+            BusinessApplication.objects.select_related(
+                "user",
+                "identity",
+            ),
+            business_application_uuid=business_application_uuid,
+        )
+
+        # -------------------------------------------------
+        # ACCESS CHECK - same rule as the metadata endpoint
+        # -------------------------------------------------
+
+        is_admin = request.user.role == UserRole.ADMIN
+        is_owner = application.user_id == request.user.id
+
+        if not is_admin and not is_owner:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You do not have permission to "
+                        "view this document."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            identity = application.identity
+        except BusinessIdentity.DoesNotExist:
+            raise Http404(
+                "No documents have been uploaded for "
+                "this business application."
+            )
+
+        file_field = getattr(identity, field_name)
+
+        return serve_document_file(file_field)
+
+
+# =========================================================
+# BUSINESS OWNER
+# SUBMIT BUSINESS TYPE UPGRADE REQUEST
+# =========================================================
+
+class BusinessUpgradeRequestCreateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+        JSONParser,
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="Request a business type change",
+        description=(
+            "Submitted by an approved business owner to request "
+            "changing their business_type (e.g. INDIVIDUAL to "
+            "COMPANY). Only fields missing from the business's "
+            "existing identity need to be submitted."
+        ),
+        request=BusinessUpgradeRequestSubmitSerializer,
+        responses={
+            201: BusinessUpgradeRequestFullSerializer,
+            400: OpenApiResponse(
+                description="Validation error"
+            ),
+        },
+    )
+    def post(self, request):
+
+        business = get_object_or_404(
+            BusinessProfile,
+            owner=request.user,
+            is_active=True,
+        )
+
+        current_identity = get_current_business_identity(
+            business
+        )
+
+        serializer = BusinessUpgradeRequestSubmitSerializer(
+            data=request.data,
+            context={
+                "business": business,
+                "current_identity": current_identity,
+            },
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+
+            upgrade_request = BusinessUpgradeService.submit(
+                business=business,
+                validated_data=serializer.validated_data,
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request submitted "
+                    "successfully. It is waiting for admin "
+                    "review."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =========================================================
+# BUSINESS OWNER
+# LIST MY UPGRADE REQUESTS
+# =========================================================
+
+class BusinessUpgradeRequestListAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="List my business upgrade requests",
+        responses=BusinessUpgradeRequestFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        upgrade_requests = (
+            BusinessUpgradeRequest.objects
+            .filter(
+                business__owner=request.user,
+            )
+            .select_related(
+                "business",
+                "business__owner",
+                "reviewed_by",
+            )
+        )
+
+        serializer = BusinessUpgradeRequestFullSerializer(
+            upgrade_requests,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+# =========================================================
+# BUSINESS UPGRADE REQUEST - DOCUMENTS
+# =========================================================
+
+BUSINESS_UPGRADE_DOCUMENT_FIELDS = {
+    "pan": "pan_document",
+    "aadhaar": "aadhaar_document",
+    "internal_store_photo": "internal_store_photo",
+    "external_store_photo": "external_store_photo",
+    "gst_bill_book": "cancelled_gst_bill_book_photo",
+}
+
+
+def _get_upgrade_request_for_user(request, business_upgrade_request_uuid):
+    """
+    Shared lookup + permission check for both upgrade-request
+    document endpoints below. Returns the BusinessUpgradeRequest,
+    or raises Http404 / returns a 403 Response.
+    """
+    upgrade_request = get_object_or_404(
+        BusinessUpgradeRequest.objects.select_related(
+            "business",
+            "business__owner",
+        ),
+        business_upgrade_request_uuid=business_upgrade_request_uuid,
+    )
+
+    is_admin = request.user.role == UserRole.ADMIN
+    is_owner = upgrade_request.business.owner_id == request.user.id
+
+    if not is_admin and not is_owner:
+        return upgrade_request, Response(
+            {
+                "success": False,
+                "message": (
+                    "You do not have permission to "
+                    "view these documents."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return upgrade_request, None
+
+
+class BusinessUpgradeRequestDocumentsAPIView(APIView):
+    """
+    Lists the documents submitted with an upgrade request, each
+    with a link to the protected streaming view below - not a
+    public /media/ URL.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="List documents for a business upgrade request",
+        responses=BusinessUpgradeRequestDocumentsSerializer,
+    )
+    def get(self, request, business_upgrade_request_uuid):
+
+        upgrade_request, error_response = (
+            _get_upgrade_request_for_user(
+                request, business_upgrade_request_uuid
+            )
+        )
+        if error_response:
+            return error_response
+
+        try:
+            identity = upgrade_request.identity
+        except BusinessUpgradeIdentity.DoesNotExist:
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "No new documents were submitted with "
+                        "this upgrade request."
+                    ),
+                    "data": {},
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = BusinessUpgradeRequestDocumentsSerializer(
+            identity,
+            context={"request": request},
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request documents "
+                    "fetched successfully."
+                ),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class BusinessUpgradeRequestDocumentViewAPIView(APIView):
+    """
+    Streams the actual file for ONE document belonging to a
+    business upgrade request. Same protection model as the
+    business application documents view: owner or Admin only,
+    re-checked on every request.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="View a single business upgrade request document",
+        description=(
+            "Streams the requested document inline (PDF/image "
+            "preview). The business owner who submitted the "
+            "upgrade request, or an Admin, can view it."
+        ),
+    )
+    def get(
+        self,
+        request,
+        business_upgrade_request_uuid,
+        document_key,
+    ):
+        field_name = BUSINESS_UPGRADE_DOCUMENT_FIELDS.get(
+            document_key
+        )
+
+        if field_name is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Unknown document type '{document_key}'. "
+                        f"Valid options: "
+                        f"{', '.join(BUSINESS_UPGRADE_DOCUMENT_FIELDS)}"
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        upgrade_request, error_response = (
+            _get_upgrade_request_for_user(
+                request, business_upgrade_request_uuid
+            )
+        )
+        if error_response:
+            return error_response
+
+        try:
+            identity = upgrade_request.identity
+        except BusinessUpgradeIdentity.DoesNotExist:
+            raise Http404(
+                "No documents have been uploaded for "
+                "this upgrade request."
+            )
+
+        file_field = getattr(identity, field_name)
+
+        return serve_document_file(file_field)
+
+
+# =========================================================
+# ADMIN
+# LIST UPGRADE REQUESTS
+# =========================================================
+
+class AdminBusinessUpgradeRequestListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List business upgrade requests",
+        description=(
+            "Optional query param `status` filters by "
+            "PENDING, APPROVED, or REJECTED."
+        ),
+        responses=BusinessUpgradeRequestFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        upgrade_requests = (
+            BusinessUpgradeRequest.objects
+            .select_related(
+                "business",
+                "business__owner",
+                "reviewed_by",
+            )
+        )
+
+        status_filter = request.query_params.get("status")
+
+        if status_filter:
+            upgrade_requests = upgrade_requests.filter(
+                status=status_filter.upper()
+            )
+
+        serializer = BusinessUpgradeRequestFullSerializer(
+            upgrade_requests,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+# =========================================================
+# ADMIN
+# APPROVE UPGRADE REQUEST
+# =========================================================
+
+class AdminApproveBusinessUpgradeRequestAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Approve business upgrade request",
+        description=(
+            "Approving changes the business's business_type "
+            "and, depending on the request, may update bank "
+            "details (resetting verification) and deactivate "
+            "existing employees/schedules."
+        ),
+        request=None,
+        responses=BusinessUpgradeRequestFullSerializer,
+    )
+    def post(self, request, business_upgrade_request_uuid):
+
+        upgrade_request = get_object_or_404(
+            BusinessUpgradeRequest,
+            business_upgrade_request_uuid=(
+                business_upgrade_request_uuid
+            ),
+        )
+
+        try:
+
+            upgrade_request, business = (
+                BusinessUpgradeService.approve(
+                    upgrade_request=upgrade_request,
+                    admin_user=request.user,
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request approved. "
+                    "Business type is now "
+                    f"{business.business_type}."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ADMIN
+# REJECT UPGRADE REQUEST
+# =========================================================
+
+class AdminRejectBusinessUpgradeRequestAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Reject business upgrade request",
+        description=(
+            "Admin must provide a rejection reason."
+        ),
+        request=RejectBusinessApplicationSerializer,
+        responses=BusinessUpgradeRequestFullSerializer,
+    )
+    def post(self, request, business_upgrade_request_uuid):
+
+        upgrade_request = get_object_or_404(
+            BusinessUpgradeRequest,
+            business_upgrade_request_uuid=(
+                business_upgrade_request_uuid
+            ),
+        )
+
+        serializer = RejectBusinessApplicationSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+
+            upgrade_request = (
+                BusinessUpgradeService.reject(
+                    upgrade_request=upgrade_request,
+                    admin_user=request.user,
+                    reason=serializer.validated_data[
+                        "reason"
+                    ],
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request rejected."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
             },
             status=status.HTTP_200_OK,
         )

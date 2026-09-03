@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from .views import (
     CategoryDetailAPIView,
     CategoryListCreateAPIView,
+    SubCategoryBySlugAPIView,
     SubCategoryDetailAPIView,
     SubCategoryListCreateAPIView,
 )
@@ -31,9 +32,14 @@ urlpatterns = [
     ),
 
     path(
+        "subcategories/<slug:slug>/",
+        SubCategoryBySlugAPIView.as_view(),
+        name="subcategory-detail",
+    ),
+
+    path(
         "subcategories/<uuid:subCat_uuid>/",
         SubCategoryDetailAPIView.as_view(),
-        name="subcategory-detail",
     ),
 ]
 

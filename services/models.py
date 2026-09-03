@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from core.models.base import TimeStampedModel
 from business.models import BusinessProfile
@@ -237,3 +238,101 @@ class ServiceEmployee(TimeStampedModel):
 
     def __str__(self):
         return f"{self.employee.name} - {self.service.name}"
+
+#=========================================================================================================
+#                                   Search Log (zero-result tracking)
+#=========================================================================================================
+
+class SearchLog(TimeStampedModel):
+    """
+    Records every service search, primarily so zero-result
+    searches can be reviewed later. Helps identify real user
+    phrases (e.g. local/casual terms) that automated matching
+    (full-text + trigram + WordNet) didn't catch, without having
+    to guess synonyms upfront for every possible phrase.
+    """
+
+    search_term = models.CharField(
+        max_length=255,
+        db_index=True,
+    )
+
+    result_count = models.PositiveIntegerField()
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="search_logs",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["result_count", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f'"{self.search_term}" ({self.result_count} results)'
+    
+
+#=========================================================================================================
+#                                   Search Synonym (manual, admin-editable)
+#=========================================================================================================
+
+class SearchSynonym(TimeStampedModel):
+    """
+    Manually added word pairs that should be treated as
+    interchangeable in search. Meant to be added AFTER reviewing
+    zero-result SearchLog entries — fill gaps that WordNet and
+    trigram matching couldn't catch (local/casual phrases, etc).
+
+    Matching works in BOTH directions: if term="putting" and
+    synonym="installation", searching either word will also
+    search for the other.
+    """
+
+    term = models.CharField(
+        max_length=100,
+        db_index=True,
+        help_text="A word users might search for, e.g. 'putting'.",
+    )
+
+    synonym = models.CharField(
+        max_length=100,
+        db_index=True,
+        help_text=(
+            "The word it should also match, e.g. 'installation'. "
+            "Matching works both ways."
+        ),
+    )
+
+    class Meta:
+        ordering = ["term"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["term", "synonym"],
+                name="unique_search_synonym_pair",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if self.term.strip().lower() == self.synonym.strip().lower():
+            raise ValidationError(
+                {
+                    "synonym": (
+                        "Term and synonym must be different words."
+                    )
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        self.term = self.term.strip().lower()
+        self.synonym = self.synonym.strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.term} <-> {self.synonym}"
