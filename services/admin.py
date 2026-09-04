@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import SearchLog, SearchSynonym, Service
+from .models import ServiceType, Unit, ServiceEmployee
 
 
 @admin.register(Service)
@@ -31,6 +32,64 @@ class ServiceAdmin(admin.ModelAdmin):
         "service_uuid",
         "created_at",
         "updated_at",
+    )
+
+@admin.register(ServiceType)
+class ServiceTypeAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "slug",
+        "is_active",
+        "created_at",
+    )
+
+    list_filter = (
+        "is_active",
+    )
+
+    search_fields = (
+        "name",
+        "slug",
+    )
+
+    prepopulated_fields = {
+        "slug": ("name",),
+    }
+
+
+@admin.register(Unit)
+class UnitAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "service_type",
+        "is_active",
+        "created_at",
+    )
+
+    list_filter = (
+        "service_type",
+        "is_active",
+    )
+
+    search_fields = (
+        "name",
+        "service_type__name",
+    )
+
+
+@admin.register(ServiceEmployee)
+class ServiceEmployeeAdmin(admin.ModelAdmin):
+    list_display = (
+        "service_employee_uuid",
+        "service",
+        "employee",
+        "created_at",
+    )
+
+    search_fields = (
+        "service_employee_uuid",
+        "service__name",
+        "employee__name",
     )
 
 

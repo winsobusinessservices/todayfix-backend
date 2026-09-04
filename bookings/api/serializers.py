@@ -159,7 +159,7 @@ class BookingReadSerializer(serializers.ModelSerializer):
 class BookingCreateSerializer(serializers.Serializer):
 
     service_uuid = serializers.UUIDField()
-
+    business_uuid = serializers.UUIDField()
     address_uuid = serializers.UUIDField()
 
     scheduled_date = serializers.DateField()

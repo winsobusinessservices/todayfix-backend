@@ -6,8 +6,6 @@ from rest_framework.generics import (
     UpdateAPIView,
 )
 
-import logging
-
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import (
     AllowAny,
@@ -16,21 +14,18 @@ from rest_framework.permissions import (
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django.db.models import Q, Value
-from django.contrib.postgres.search import (
-    SearchVector,
-    SearchQuery,
-    SearchRank,
-    TrigramSimilarity,
-)
+from django.db.models import Q
 
 from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
     extend_schema,
+    OpenApiTypes,
     OpenApiParameter,
 )
 
 from business.models import BusinessProfile
-from services.models import Service, ServiceEmployee, ServiceType, Unit, SearchLog
+from services.models import Service, ServiceEmployee, ServiceType, Unit
 from services.permissions import (
     IsApprovedBusiness,
     IsServiceOwner,
@@ -51,11 +46,6 @@ from .serializers import (
     MyServiceReadSerializer,
 )
 
-from services.search_utils import expand_search_words
-
-
-logger = logging.getLogger(__name__)
-
 
 # =============================================================
 # LIST SERVICES (public)
@@ -69,7 +59,28 @@ logger = logging.getLogger(__name__)
         "List all active services. "
         "Accessible without authentication."
     ),
-    responses={200: ServiceReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Active services fetched successfully.",
+            examples=[OpenApiExample("Success", value=[{
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}], response_only=True)],
+        ),
+    },
 )
 
 class ServiceListAPIView(ListAPIView):
@@ -119,7 +130,28 @@ class ServiceListAPIView(ListAPIView):
     tags=["Services"],
     summary="Service Detail",
     description="Retrieve a single service by UUID.",
-    responses={200: ServiceReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Service details fetched successfully.",
+            examples=[OpenApiExample("Success", value={
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}, response_only=True)],
+        ),
+    },
 )
 class ServiceDetailAPIView(RetrieveAPIView):
 
@@ -173,7 +205,28 @@ class ServiceDetailAPIView(RetrieveAPIView):
         "business owners can create services."
     ),
     request=ServiceCreateSerializer,
-    responses={201: ServiceReadSerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Service created successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Service created successfully.", "data": {
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}}, response_only=True)],
+        ),
+    },
 )
 class ServiceCreateAPIView(CreateAPIView):
 
@@ -236,7 +289,28 @@ class ServiceCreateAPIView(CreateAPIView):
         "business owner can update their services."
     ),
     request=ServiceUpdateSerializer,
-    responses={200: ServiceReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Service updated successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Service updated successfully.", "data": {
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}}, response_only=True)],
+        ),
+    },
 )
 class ServiceUpdateAPIView(UpdateAPIView):
 
@@ -291,6 +365,13 @@ class ServiceUpdateAPIView(UpdateAPIView):
         "Deactivate a service. Only the "
         "business owner can deactivate their services."
     ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Service deactivated successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Service deactivated successfully."}, response_only=True)],
+        ),
+    },
 )
 class ServiceDeleteAPIView(APIView):
 
@@ -398,47 +479,34 @@ class ServiceDeleteAPIView(APIView):
             required=False,
         ),
     ],
-    responses={200: ServiceReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Services fetched successfully.",
+            examples=[OpenApiExample("Success", value=[{
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}], response_only=True)],
+        ),
+    },
 )
 class ServiceSearchAPIView(ListAPIView):
 
     serializer_class = ServiceReadSerializer
     permission_classes = [AllowAny]
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-
-        search_term = (
-            request.query_params.get("search") or ""
-        ).strip()
-
-        if search_term:
-            result_count = queryset.count()
-
-            try:
-                SearchLog.objects.create(
-                    search_term=search_term,
-                    result_count=result_count,
-                    user=(
-                        request.user
-                        if request.user.is_authenticated
-                        else None
-                    ),
-                )
-            except Exception:
-                # Logging must never break the actual search.
-                logger.exception(
-                    "Failed to write SearchLog for term: %s",
-                    search_term,
-                )
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
 
     def get_queryset(self):
         qs = (
@@ -541,46 +609,12 @@ class ServiceSearchAPIView(ListAPIView):
 
 
         # Keyword search
-        # -------------------------------------------------
-        # Combines two techniques:
-        #   1. Full-text search: matches individual WORDS
-        #      (not the whole phrase), so word order and
-        #      extra words don't cause a miss. Ranked by
-        #      how many words matched.
-        #   2. Trigram similarity: catches typos / partial
-        #      spellings (e.g. "fann instal") as a fallback,
-        #      even when full-text finds nothing.
-        # -------------------------------------------------
         search = params.get("search")
         if search:
-            search = search.strip()
-
-        if search:
-            words = [w for w in search.split() if w]
-
-            # Add generic English synonyms (e.g. "install" -> "set up").
-            # Falls back to just the original words if the corpus
-            # isn't downloaded yet or nltk isn't installed.
-            expanded_words = expand_search_words(words)
-
-            expanded_iter = iter(expanded_words)
-            search_query = SearchQuery(
-                next(expanded_iter), search_type="plain"
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(description__icontains=search)
             )
-            for word in expanded_iter:
-                search_query |= SearchQuery(word, search_type="plain")
-
-            search_vector = (
-                SearchVector("name", weight="A")
-                + SearchVector("description", weight="B")
-            )
-
-            qs = qs.annotate(
-                rank=SearchRank(search_vector, search_query),
-                similarity=TrigramSimilarity("name", search),
-            ).filter(
-                Q(rank__gte=0.01) | Q(similarity__gte=0.15)
-            ).order_by("-rank", "-similarity")
 
         return qs
 
@@ -596,7 +630,13 @@ class ServiceSearchAPIView(ListAPIView):
         "Only the owner of the service can assign employees."
     ),
     request=ServiceEmployeeSerializer,
-    responses={201: ServiceEmployeeSerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee assigned to service successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Employee assigned to service successfully.", "data": {"service_employee_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab", "service_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "employee_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab"}}, response_only=True)],
+        ),
+    },
 )
 class ServiceEmployeeCreateAPIView(CreateAPIView):
 
@@ -667,7 +707,13 @@ class ServiceEmployeeCreateAPIView(CreateAPIView):
     tags=["Services"],
     summary="List Employees Assigned to Service",
     description="List employees assigned to a specific service.",
-    responses={200: ServiceEmployeeReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employees fetched successfully.",
+            examples=[OpenApiExample("Success", value=[{"service_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "employee_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "employee_name": "John Doe"}], response_only=True)],
+        ),
+    },
 )
 class ServiceEmployeeListAPIView(ListAPIView):
 
@@ -702,7 +748,13 @@ class ServiceTypeListCreateAPIView(APIView):
     @extend_schema(
         tags=["Service Types"],
         summary="List service types",
-        responses=ServiceTypeSerializer(many=True),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Service types fetched successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "data": [{"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []}]}, response_only=True)],
+            ),
+        },
     )
     def get(self, request):
         service_types = ServiceType.objects.prefetch_related("units")
@@ -717,7 +769,13 @@ class ServiceTypeListCreateAPIView(APIView):
         tags=["Service Types"],
         summary="Create service type",
         request=ServiceTypeSerializer,
-        responses={201: ServiceTypeSerializer},
+        responses={
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Service type created successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Service type created successfully.", "data": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []}}, response_only=True)],
+            ),
+        },
     )
     def post(self, request):
         serializer = ServiceTypeSerializer(data=request.data)
@@ -748,7 +806,13 @@ class ServiceTypeDetailAPIView(APIView):
     @extend_schema(
         tags=["Service Types"],
         summary="Get service type details",
-        responses=ServiceTypeSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Service type details fetched successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "data": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []}}, response_only=True)],
+            ),
+        },
     )
     def get(self, request, type_uuid):
         service_type = get_object_or_404(
@@ -769,7 +833,13 @@ class ServiceTypeDetailAPIView(APIView):
         tags=["Service Types"],
         summary="Update service type",
         request=ServiceTypeSerializer,
-        responses=ServiceTypeSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Service type updated successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Service type updated successfully.", "data": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []}}, response_only=True)],
+            ),
+        },
     )
     def patch(self, request, type_uuid):
         service_type = get_object_or_404(ServiceType, type_uuid=type_uuid)
@@ -789,6 +859,13 @@ class ServiceTypeDetailAPIView(APIView):
     @extend_schema(
         tags=["Service Types"],
         summary="Delete service type",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Service type deleted successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Service type deleted successfully."}, response_only=True)],
+            ),
+        },
     )
     def delete(self, request, type_uuid):
         service_type = get_object_or_404(ServiceType, type_uuid=type_uuid)
@@ -838,7 +915,13 @@ class UnitListCreateAPIView(APIView):
     @extend_schema(
         tags=["Units"],
         summary="List units for a service type",
-        responses=UnitSerializer(many=True),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Units fetched successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "data": [{"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True}]}, response_only=True)],
+            ),
+        },
     )
     def get(self, request, type_uuid):
         if request.user.role == UserRole.ADMIN:
@@ -860,7 +943,13 @@ class UnitListCreateAPIView(APIView):
         tags=["Units"],
         summary="Create unit under a service type",
         request=UnitSerializer,
-        responses={201: UnitSerializer},
+        responses={
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Unit created successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Unit created successfully.", "data": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True}}, response_only=True)],
+            ),
+        },
     )
     def post(self, request, type_uuid):
         service_type = get_object_or_404(
@@ -895,7 +984,13 @@ class UnitDetailAPIView(APIView):
     @extend_schema(
         tags=["Units"],
         summary="Get unit details",
-        responses=UnitSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Unit details fetched successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "data": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True}}, response_only=True)],
+            ),
+        },
     )
     def get(self, request, unit_uuid):
         unit = get_object_or_404(
@@ -916,7 +1011,13 @@ class UnitDetailAPIView(APIView):
         tags=["Units"],
         summary="Update unit",
         request=UnitSerializer,
-        responses=UnitSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Unit updated successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Unit updated successfully.", "data": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True}}, response_only=True)],
+            ),
+        },
     )
     def patch(self, request, unit_uuid):
         unit = get_object_or_404(Unit, unit_uuid=unit_uuid)
@@ -934,6 +1035,13 @@ class UnitDetailAPIView(APIView):
     @extend_schema(
         tags=["Units"],
         summary="Delete unit",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Unit deleted successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Unit deleted successfully."}, response_only=True)],
+            ),
+        },
     )
     def delete(self, request, unit_uuid):
         unit = get_object_or_404(Unit, unit_uuid=unit_uuid)
@@ -968,7 +1076,26 @@ class UnitDetailAPIView(APIView):
         "to each service."
     ),
     responses={
-        200: MyServiceReadSerializer(many=True),
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business owner's services fetched successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Business owner's services fetched successfully.", "data": [{**{
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}, "employees": [{"service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab", "employee_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "employee_name": "John Doe"}]}]}, response_only=True)],
+        ),
     },
 )
 class MyServicesAPIView(APIView):
@@ -1049,7 +1176,11 @@ class MyServicesAPIView(APIView):
         "can remove employees from their own services."
     ),
     responses={
-        200: None,
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee removed from service successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Employee removed from service successfully."}, response_only=True)],
+        ),
     },
 )
 class ServiceEmployeeDeleteAPIView(APIView):
@@ -1143,7 +1274,28 @@ class ServiceEmployeeDeleteAPIView(APIView):
         "List all active services belonging to a specific "
         "subcategory. Accessible without authentication."
     ),
-    responses={200: ServiceReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Services fetched successfully.",
+            examples=[OpenApiExample("Success", value=[{
+    "service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+    "name": "AC Repair",
+    "description": "Air conditioner repair service",
+    "price": "1500.00",
+    "duration": 120,
+    "required_employees": 2,
+    "business": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "name": "CoolFix Services"},
+    "category": {"cat_uuid": "c1d2e3f4-5678-4abc-9def-0123456789ab", "name": "Home Services"},
+    "subcategory": {"subCat_uuid": "d1e2f3a4-5678-4abc-9def-0123456789ab", "name": "AC Repair"},
+    "service_type": {"service_type_uuid": "e1f2a3b4-5678-4abc-9def-0123456789ab", "name": "Repair", "slug": "repair", "is_active": True, "units": []},
+    "unit": {"service_unit_uuid": "f1a2b3c4-5678-4abc-9def-0123456789ab", "name": "Hour", "slug": "hour", "is_active": True},
+    "is_active": True,
+    "created_at": "2026-09-04T10:30:00Z",
+    "updated_at": "2026-09-04T10:30:00Z"
+}], response_only=True)],
+        ),
+    },
 )
 class SubCategoryServiceListAPIView(ListAPIView):
 
@@ -1153,8 +1305,6 @@ class SubCategoryServiceListAPIView(ListAPIView):
 
     def get_queryset(self):
         subcategory_uuid = self.kwargs["subCat_uuid"]
-
-
 
         return (
             Service.objects

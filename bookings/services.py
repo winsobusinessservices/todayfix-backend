@@ -21,6 +21,7 @@ class BookingService:
     def create_booking(
         user,
         service_uuid,
+        business_uuid,
         address_uuid,
         scheduled_date,
         slot_type,
@@ -85,6 +86,12 @@ class BookingService:
         # =====================================================
 
         business = service.business
+
+        if str(business.business_profile_uuid) != str(business_uuid):
+            raise ValueError(
+                "This service is not offered by the selected "
+                "provider."
+            )
 
         if not business.is_active:
             raise ValueError(
