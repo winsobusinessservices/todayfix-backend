@@ -6,7 +6,13 @@ from rest_framework.generics import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+)
 
 from bookings.models import Booking, BookingEmployee
 from business.models import Employee
@@ -61,7 +67,35 @@ from business.choices import BusinessType
             description="Future date in YYYY-MM-DD format.",
         ),
     ],
-    responses={200: dict},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking slot availability fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Booking slot availability fetched successfully."
+                        ),
+                        "data": {
+                            "service_uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "scheduled_date": "2026-09-10",
+                            "slots": {
+                                "MORNING": True,
+                                "AFTERNOON": True,
+                                "EVENING": False,
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BookingSlotAvailabilityAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -146,7 +180,71 @@ class BookingSlotAvailabilityAPIView(APIView):
     summary="Create Booking",
     description="Create a new booking as a user.",
     request=BookingCreateSerializer,
-    responses={201: BookingReadSerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking created successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking created successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:30:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserBookingCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -183,7 +281,87 @@ class UserBookingCreateAPIView(APIView):
     tags=["Scheduled Bookings"],
     summary="Assign Employee to Booking",
     request=BookingEmployeeAssignSerializer,
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee assigned to booking successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Employee assigned to booking successfully."
+                        ),
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": {
+                                "employee_uuid": (
+                                    "f1a2b3c4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Suresh",
+                                "phone": "9123456780",
+                            },
+                            "booking_employees": [
+                                {
+                                    "employee_uuid": (
+                                        "f1a2b3c4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "name": "Suresh",
+                                    "phone": "9123456780",
+                                }
+                            ],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:35:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingAssignEmployeeAPIView(APIView):
     permission_classes = [IsAuthenticated, IsBookingBusiness]
@@ -306,7 +484,85 @@ class BusinessBookingAssignEmployeeAPIView(APIView):
         "with another employee from the same business."
     ),
     request=BookingEmployeeReassignSerializer,
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee reassigned successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Employee reassigned successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": {
+                                "employee_uuid": (
+                                    "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Mahesh",
+                                "phone": "9988776655",
+                            },
+                            "booking_employees": [
+                                {
+                                    "employee_uuid": (
+                                        "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "name": "Mahesh",
+                                    "phone": "9988776655",
+                                }
+                            ],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:40:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingReassignEmployeeAPIView(APIView):
     permission_classes = [IsAuthenticated, IsBookingBusiness]
@@ -463,7 +719,69 @@ class BusinessBookingReassignEmployeeAPIView(APIView):
     tags=["Scheduled Bookings"],
     summary="List My Bookings",
     description="List all bookings for the authenticated user.",
-    responses={200: BookingReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="User bookings fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value=[
+                        {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:30:00Z",
+                        }
+                    ],
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserBookingListAPIView(ListAPIView):
     serializer_class = BookingReadSerializer
@@ -492,7 +810,81 @@ class UserBookingListAPIView(ListAPIView):
             description="A page number within the paginated result set.",
         ),
     ],
-    responses={200: BookingHistorySerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking history fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "count": 1,
+                        "next": None,
+                        "previous": None,
+                        "results": {
+                            "success": True,
+                            "message": (
+                                "Booking history fetched successfully."
+                            ),
+                            "data": [
+                                {
+                                    "booking_type": "SCHEDULED",
+                                    "booking_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user": {
+                                        "user_uuid": (
+                                            "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "first_name": "Ravi",
+                                        "last_name": "Kumar",
+                                        "phone": "9876543210",
+                                    },
+                                    "business": {
+                                        "business_profile_uuid": (
+                                            "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "name": "Ravi Services",
+                                        "phone": "9876543210",
+                                    },
+                                    "service": {
+                                        "service_uuid": (
+                                            "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "name": "AC Repair",
+                                        "duration": 60,
+                                    },
+                                    "address": {
+                                        "add_uuid": (
+                                            "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "address_type": "HOME",
+                                        "address_line": "221B Baker Street",
+                                        "locality": "Indiranagar",
+                                        "city": "Bengaluru",
+                                        "state": "Karnataka",
+                                        "pincode": "560038",
+                                        "location": "",
+                                    },
+                                    "employee": None,
+                                    "booking_employees": [],
+                                    "scheduled_date": "2026-09-10",
+                                    "scheduled_time": "10:00:00",
+                                    "slot_type": "MORNING",
+                                    "price": "500.00",
+                                    "status": "PENDING",
+                                    "notes": "Please call before arriving.",
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "updated_at": "2026-09-04T10:30:00Z",
+                                }
+                            ],
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserBookingHistoryAPIView(APIView):
 
@@ -578,7 +970,81 @@ class UserBookingHistoryAPIView(APIView):
             description="A page number within the paginated result set.",
         ),
     ],
-    responses={200: BookingHistorySerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Pending bookings fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "count": 1,
+                        "next": None,
+                        "previous": None,
+                        "results": {
+                            "success": True,
+                            "message": (
+                                "Pending bookings fetched successfully."
+                            ),
+                            "data": [
+                                {
+                                    "booking_type": "SCHEDULED",
+                                    "booking_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user": {
+                                        "user_uuid": (
+                                            "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "first_name": "Ravi",
+                                        "last_name": "Kumar",
+                                        "phone": "9876543210",
+                                    },
+                                    "business": {
+                                        "business_profile_uuid": (
+                                            "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "name": "Ravi Services",
+                                        "phone": "9876543210",
+                                    },
+                                    "service": {
+                                        "service_uuid": (
+                                            "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "name": "AC Repair",
+                                        "duration": 60,
+                                    },
+                                    "address": {
+                                        "add_uuid": (
+                                            "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                        ),
+                                        "address_type": "HOME",
+                                        "address_line": "221B Baker Street",
+                                        "locality": "Indiranagar",
+                                        "city": "Bengaluru",
+                                        "state": "Karnataka",
+                                        "pincode": "560038",
+                                        "location": "",
+                                    },
+                                    "employee": None,
+                                    "booking_employees": [],
+                                    "scheduled_date": "2026-09-10",
+                                    "scheduled_time": "10:00:00",
+                                    "slot_type": "MORNING",
+                                    "price": "500.00",
+                                    "status": "PENDING",
+                                    "notes": "Please call before arriving.",
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "updated_at": "2026-09-04T10:30:00Z",
+                                }
+                            ],
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserPendingBookingHistoryAPIView(APIView):
 
@@ -689,7 +1155,71 @@ class UserPendingBookingHistoryAPIView(APIView):
     tags=["Scheduled Bookings"],
     summary="My Booking Detail",
     description="Get details of a specific user booking.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking details fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking details fetched successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:30:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserBookingDetailAPIView(RetrieveAPIView):
     serializer_class = BookingReadSerializer
@@ -708,7 +1238,71 @@ class UserBookingDetailAPIView(RetrieveAPIView):
     tags=["Scheduled Bookings"],
     summary="Cancel Booking",
     description="Cancel a pending or confirmed booking.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking cancelled successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking cancelled successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "CANCELLED",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T11:00:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UserBookingCancelAPIView(APIView):
     permission_classes = [IsAuthenticated, IsBookingUser]
@@ -750,7 +1344,69 @@ class UserBookingCancelAPIView(APIView):
     tags=["Scheduled Bookings"],
     summary="List Business Bookings",
     description="List all bookings for the authenticated user's business.",
-    responses={200: BookingReadSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business bookings fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value=[
+                        {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:30:00Z",
+                        }
+                    ],
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingListAPIView(ListAPIView):
     serializer_class = BookingReadSerializer
@@ -768,7 +1424,73 @@ class BusinessBookingListAPIView(ListAPIView):
     tags=["Scheduled Bookings"],
     summary="Business Booking Detail",
     description="Get details of a specific business booking.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business booking details fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business booking details fetched successfully."
+                        ),
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "PENDING",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:30:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingDetailAPIView(RetrieveAPIView):
     serializer_class = BookingReadSerializer
@@ -823,7 +1545,71 @@ class BaseBusinessTransitionAPIView(APIView):
     tags=["Scheduled Bookings"],
     summary="Accept Booking",
     description="Business accepts a pending booking.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking accepted successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking updated successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "CONFIRMED",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:45:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingAcceptAPIView(BaseBusinessTransitionAPIView):
     def perform_transition(self, booking):
@@ -837,7 +1623,71 @@ class BusinessBookingAcceptAPIView(BaseBusinessTransitionAPIView):
     tags=["Scheduled Bookings"],
     summary="Reject Booking",
     description="Business rejects a pending booking.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking rejected successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking updated successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "REJECTED",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T10:45:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingRejectAPIView(BaseBusinessTransitionAPIView):
     def perform_transition(self, booking):
@@ -848,7 +1698,71 @@ class BusinessBookingRejectAPIView(BaseBusinessTransitionAPIView):
     tags=["Scheduled Bookings"],
     summary="Start Booking",
     description="Business marks a confirmed booking as in-progress.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking started successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking updated successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "IN_PROGRESS",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T11:00:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingStartAPIView(BaseBusinessTransitionAPIView):
     def perform_transition(self, booking):
@@ -859,7 +1773,71 @@ class BusinessBookingStartAPIView(BaseBusinessTransitionAPIView):
     tags=["Scheduled Bookings"],
     summary="Complete Booking",
     description="Business marks an in-progress booking as completed.",
-    responses={200: BookingReadSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking completed successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Booking updated successfully.",
+                        "data": {
+                            "uuid": (
+                                "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "user": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "phone": "9876543210",
+                            },
+                            "business": {
+                                "business_profile_uuid": (
+                                    "c1d2e3f4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Ravi Services",
+                                "phone": "9876543210",
+                            },
+                            "employee": None,
+                            "booking_employees": [],
+                            "service": {
+                                "service_uuid": (
+                                    "d1e2f3a4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "AC Repair",
+                                "duration": 60,
+                            },
+                            "address": {
+                                "add_uuid": (
+                                    "e1f2a3b4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "address_type": "HOME",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                            },
+                            "scheduled_date": "2026-09-10",
+                            "scheduled_time": "10:00:00",
+                            "slot_type": "MORNING",
+                            "price": "500.00",
+                            "status": "COMPLETED",
+                            "notes": "Please call before arriving.",
+                            "created_at": "2026-09-04T10:30:00Z",
+                            "updated_at": "2026-09-04T12:00:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class BusinessBookingCompleteAPIView(BaseBusinessTransitionAPIView):
     def perform_transition(self, booking):
