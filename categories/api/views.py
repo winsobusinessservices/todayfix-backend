@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.db import IntegrityError
 
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -436,9 +437,21 @@ class SubCategoryListCreateAPIView(APIView):
             raise_exception=True
         )
 
-        subcategory = serializer.save(
-            category=category
-        )
+        try:
+            subcategory = serializer.save(
+                category=category
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A subcategory with this name or slug "
+                        "already exists in this category."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -522,7 +535,19 @@ class SubCategoryDetailAPIView(APIView):
             raise_exception=True
         )
 
-        subcategory = serializer.save()
+        try:
+            subcategory = serializer.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A subcategory with this name or slug "
+                        "already exists in this category."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response({
             "success": True,

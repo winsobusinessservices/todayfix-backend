@@ -7,6 +7,7 @@ from rest_framework.generics import (
 )
 
 from django.shortcuts import get_object_or_404
+from django.db import IntegrityError
 from rest_framework.permissions import (
     AllowAny,
     IsAuthenticated,
@@ -673,10 +674,22 @@ class ServiceEmployeeCreateAPIView(CreateAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        assignment = ServiceEmployee.objects.create(
-            service=service,
-            employee=employee,
-        )
+        try:
+            assignment = ServiceEmployee.objects.create(
+                service=service,
+                employee=employee,
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This employee is already assigned "
+                        "to this service."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -958,7 +971,20 @@ class UnitListCreateAPIView(APIView):
 
         serializer = UnitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        unit = serializer.save(service_type=service_type)
+
+        try:
+            unit = serializer.save(service_type=service_type)
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A unit with this name already exists "
+                        "for this service type."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -1019,12 +1045,26 @@ class UnitDetailAPIView(APIView):
             ),
         },
     )
+
     def patch(self, request, unit_uuid):
         unit = get_object_or_404(Unit, unit_uuid=unit_uuid)
 
         serializer = UnitSerializer(unit, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        unit = serializer.save()
+
+        try:
+            unit = serializer.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A unit with this name already exists "
+                        "for this service type."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response({
             "success": True,

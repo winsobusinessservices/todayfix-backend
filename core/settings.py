@@ -212,6 +212,8 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "accounts.authentication.CustomJWTAuthentication",
     ),
+
+    "EXCEPTION_HANDLER": "common.exception_handlers.custom_exception_handler",
 }
 
 
@@ -252,6 +254,7 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "TodayFix Service API",
     "DESCRIPTION": "TodayFix.in Backend Service APIs",
     "VERSION": "1.0.0",
+    "DEFAULT_GENERATOR_CLASS": "core.schema.TodayFixSchemaGenerator",
 
     "SERVE_INCLUDE_SCHEMA": False,
 
@@ -395,6 +398,7 @@ SPECTACULAR_SETTINGS = {
         "core.settings.rename_stray_tags",
     ],
 }
+
 
 
 

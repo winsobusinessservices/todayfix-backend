@@ -37,6 +37,7 @@ from .serializers import (
     BookingHistorySerializer,
 )
 
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 
 from services.models import ServiceEmployee
@@ -425,44 +426,68 @@ class BusinessBookingAssignEmployeeAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Maximum employees = service.required_employees
-        current_count = BookingEmployee.objects.filter(
-            booking=booking
-        ).count()
+        try:
+            with transaction.atomic():
+                # Lock this booking so simultaneous employee assignments
+                # for the same booking are processed one at a time.
+                booking = (
+                    Booking.objects
+                    .select_for_update()
+                    .select_related("service", "business")
+                    .get(pk=booking.pk)
+                )
 
-        if current_count >= booking.service.required_employees:
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Maximum required employees already "
-                        "assigned to this booking."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+                # Maximum employees = service.required_employees
+                current_count = BookingEmployee.objects.filter(
+                    booking=booking
+                ).count()
 
-        # Prevent duplicate assignment
-        if BookingEmployee.objects.filter(
-            booking=booking,
-            employee=employee,
-        ).exists():
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Employee is already assigned "
-                        "to this booking."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+                if current_count >= booking.service.required_employees:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "Maximum required employees already "
+                                "assigned to this booking."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-        BookingEmployee.objects.create(
-            booking=booking,
-            employee=employee,
-        )
+                # Prevent duplicate assignment
+                if BookingEmployee.objects.filter(
+                    booking=booking,
+                    employee=employee,
+                ).exists():
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "Employee is already assigned "
+                                "to this booking."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
+                BookingEmployee.objects.create(
+                    booking=booking,
+                    employee=employee,
+                )
+
+        except IntegrityError as exc:
+            if "unique_booking_employee" in str(exc):
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Employee is already assigned "
+                            "to this booking."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
         return Response(
             {
                 "success": True,

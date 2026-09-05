@@ -533,6 +533,30 @@ class VerifyPhoneUpdateOTPSerializer(serializers.Serializer):
                 "Enter a valid Indian phone number."
             )
 
+        # -------------------------------------------------
+        # PHONE MUST NOT BELONG TO ANOTHER ACCOUNT
+        # -------------------------------------------------
+        request = self.context.get("request")
+        current_user = (
+            request.user
+            if request and request.user.is_authenticated
+            else None
+        )
+
+        duplicate_query = CustomUser.objects.filter(
+            phone=value
+        )
+
+        if current_user:
+            duplicate_query = duplicate_query.exclude(
+                pk=current_user.pk
+            )
+
+        if duplicate_query.exists():
+            raise serializers.ValidationError(
+                "Phone number already exists."
+            )
+
         return value
 
     def validate_otp(self, value):

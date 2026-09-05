@@ -972,6 +972,7 @@ class EmployeeWorkingSchedule(TimeStampedModel):
             "start_time",
         ]
 
+
         constraints = [
             models.UniqueConstraint(
                 fields=[
@@ -981,6 +982,7 @@ class EmployeeWorkingSchedule(TimeStampedModel):
                 ],
                 condition=Q(
                     owner__isnull=False,
+                    is_active=True,
                 ),
                 name="unique_owner_schedule_slot",
             ),
@@ -993,6 +995,7 @@ class EmployeeWorkingSchedule(TimeStampedModel):
                 ],
                 condition=Q(
                     employee__isnull=False,
+                    is_active=True,
                 ),
                 name="unique_employee_schedule_slot",
             ),
