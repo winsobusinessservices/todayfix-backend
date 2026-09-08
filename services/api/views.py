@@ -1177,8 +1177,7 @@ class MyServicesAPIView(APIView):
                 "business",
                 "category",
                 "subcategory",
-                "service_type",
-                "unit",
+                
             )
             .prefetch_related(
                 "employee_assignments__employee",
@@ -1356,8 +1355,7 @@ class SubCategoryServiceListAPIView(ListAPIView):
                 "business",
                 "category",
                 "subcategory",
-                "service_type",
-                "unit",
+               
             )
             .order_by("-created_at")
         )
