@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import (
@@ -1123,6 +1123,10 @@ class BusinessProfileListAPIView(APIView):
             .filter(
                 owner=request.user
             )
+            .select_related(
+                "category",
+                "owner",
+            )
         )
 
         serializer = (
@@ -1266,9 +1270,21 @@ class EmployeeCreateAPIView(CreateAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        employee = serializer.save(
-            business=business,
-        )
+        try:
+            employee = serializer.save(
+                business=business,
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "An employee with this phone number "
+                        "already exists in your business."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -2220,7 +2236,6 @@ class EmployeeWorkingScheduleUpdateAPIView(APIView):
                 employee_working_schedule_uuid
             ),
             business=business,
-            is_active=True,
         )
 
         # Provider cannot be changed during update
@@ -2315,24 +2330,16 @@ class EmployeeWorkingScheduleDeleteAPIView(APIView):
                 employee_working_schedule_uuid
             ),
             business=business,
-            is_active=True,
         )
 
-        schedule.is_active = False
-
-        schedule.save(
-            update_fields=[
-                "is_active",
-                "updated_at",
-            ]
-        )
+        schedule.delete()
 
         return Response(
             {
                 "success": True,
                 "message": (
                     "Provider working schedule "
-                    "deactivated successfully."
+                    "deleted successfully."
                 ),
             },
             status=status.HTTP_200_OK,

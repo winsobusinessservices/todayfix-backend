@@ -5,6 +5,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+from django.db import IntegrityError
 from accounts.choices import UserRole
 from accounts.models import (
     CustomUser,
@@ -120,26 +121,70 @@ class AuthService:
             )
             pending_registration.save()
         else:
-            pending_registration = (
-                PendingRegistration.objects.create(
-                    first_name=validated_data[
-                        "first_name"
-                    ],
-                    last_name=validated_data.get(
-                        "last_name",
-                        ""
-                    ),
-                    email=email,
-                    phone=phone,
-                    password=password_hash,
-                    token=token,
-                    verification_method=verification_method,
-                    expires_at=(
-                        timezone.now()
-                        + timedelta(minutes=15)
-                    ),
+            try:
+                pending_registration = (
+                    PendingRegistration.objects.create(
+                        first_name=validated_data[
+                            "first_name"
+                        ],
+                        last_name=validated_data.get(
+                            "last_name",
+                            ""
+                        ),
+                        email=email,
+                        phone=phone,
+                        password=password_hash,
+                        token=token,
+                        verification_method=verification_method,
+                        expires_at=(
+                            timezone.now()
+                            + timedelta(minutes=15)
+                        ),
+                    )
                 )
-            )
+            except IntegrityError:
+                # A near-simultaneous request for the same
+                # email/phone created this row a moment earlier.
+                # Fetch it and update it with this request's
+                # details instead of failing.
+                pending_registration = (
+                    PendingRegistration.objects.filter(
+                        email__iexact=email
+                    ).first()
+                    if email
+                    else
+                    PendingRegistration.objects.filter(
+                        phone=phone
+                    ).first()
+                )
+
+                if not pending_registration:
+                    raise ValidationError({
+                        "detail": (
+                            "A registration with this email "
+                            "or phone is already in progress. "
+                            "Please try again."
+                        )
+                    })
+
+                pending_registration.first_name = (
+                    validated_data["first_name"]
+                )
+                pending_registration.last_name = (
+                    validated_data.get("last_name", "")
+                )
+                pending_registration.email = email
+                pending_registration.phone = phone
+                pending_registration.password = password_hash
+                pending_registration.token = token
+                pending_registration.verification_method = (
+                    verification_method
+                )
+                pending_registration.expires_at = (
+                    timezone.now()
+                    + timedelta(minutes=15)
+                )
+                pending_registration.save()
         return pending_registration
     # =========================================================
     # EMAIL VERIFICATION
@@ -227,7 +272,20 @@ class AuthService:
         )
         # Password already hashed.
         user.password = pending_registration.password
-        user.save()
+
+        try:
+            user.save()
+        except IntegrityError:
+            # Another request for the same verification link
+            # already created the account a moment earlier.
+            pending_registration.delete()
+            raise ValidationError({
+                "detail": (
+                    "This account has already been verified. "
+                    "Please login."
+                )
+            })
+
         pending_registration.delete()
         return user
     # =========================================================

@@ -135,8 +135,7 @@ class ServiceReadSerializer(serializers.ModelSerializer):
     business = ServiceBusinessSerializer(read_only=True)
     category = ServiceCategorySerializer(read_only=True)
     subcategory = ServiceSubCategorySerializer(read_only=True)
-    service_type = ServiceTypeLiteSerializer(read_only=True)
-    unit = ServiceUnitSerializer(read_only=True)
+ 
 
     class Meta:
         model = Service
@@ -150,8 +149,6 @@ class ServiceReadSerializer(serializers.ModelSerializer):
             "business",
             "category",
             "subcategory",
-            "service_type",
-            "unit",
             "is_active",
             "created_at",
             "updated_at",
@@ -180,13 +177,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    type_uuid = serializers.UUIDField(
-        write_only=True,
-    )
 
-    unit_uuid = serializers.UUIDField(
-        write_only=True,
-    )
 
     required_employees = serializers.IntegerField(
         required=False,
@@ -203,8 +194,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             "required_employees",
             "cat_uuid",
             "subCat_uuid",
-            "type_uuid",
-            "unit_uuid",
+         
             "is_active",
         )
 
@@ -215,31 +205,8 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate_type_uuid(self, value):
-        try:
-            service_type = ServiceType.objects.get(
-                type_uuid=value,
-                is_active=True,
-            )
-        except ServiceType.DoesNotExist:
-            raise serializers.ValidationError(
-                "Service type not found."
-            )
-        self._service_type = service_type
-        return value
 
-    def validate_unit_uuid(self, value):
-        try:
-            unit = Unit.objects.get(
-                unit_uuid=value,
-                is_active=True,
-            )
-        except Unit.DoesNotExist:
-            raise serializers.ValidationError(
-                "Unit not found."
-            )
-        self._unit = unit
-        return value
+
 
     def validate_cat_uuid(self, value):
         try:
@@ -334,21 +301,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
                 )
             })
 
-        # Validate unit belongs to service type
-        service_type = getattr(self, "_service_type", None)
-        unit = getattr(self, "_unit", None)
 
-        if (
-            service_type
-            and unit
-            and unit.service_type_id != service_type.id
-        ):
-            raise serializers.ValidationError({
-                "unit_uuid": (
-                    "Unit does not belong to the "
-                    "selected service type."
-                )
-            })
 
         return attrs
 
@@ -357,15 +310,13 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
         validated_data.pop(
             "subCat_uuid", None
         )
-        validated_data.pop("type_uuid")
-        validated_data.pop("unit_uuid")
+     
 
         validated_data["category"] = self._category
         validated_data["subcategory"] = getattr(
             self, "_subcategory", None
         )
-        validated_data["service_type"] = self._service_type
-        validated_data["unit"] = self._unit
+       
 
         return super().create(validated_data)
 
@@ -387,15 +338,7 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    type_uuid = serializers.UUIDField(
-        write_only=True,
-        required=False,
-    )
 
-    unit_uuid = serializers.UUIDField(
-        write_only=True,
-        required=False,
-    )
 
     required_employees = serializers.IntegerField(
         required=False,
@@ -412,8 +355,7 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             "required_employees",
             "cat_uuid",
             "subCat_uuid",
-            "type_uuid",
-            "unit_uuid",
+            
             "is_active",
         )
 
@@ -424,31 +366,9 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate_type_uuid(self, value):
-        try:
-            service_type = ServiceType.objects.get(
-                type_uuid=value,
-                is_active=True,
-            )
-        except ServiceType.DoesNotExist:
-            raise serializers.ValidationError(
-                "Service type not found."
-            )
-        self._service_type = service_type
-        return value
 
-    def validate_unit_uuid(self, value):
-        try:
-            unit = Unit.objects.get(
-                unit_uuid=value,
-                is_active=True,
-            )
-        except Unit.DoesNotExist:
-            raise serializers.ValidationError(
-                "Unit not found."
-            )
-        self._unit = unit
-        return value
+
+
 
     def validate_required_employees(self, value):
         request = self.context.get("request")
@@ -577,13 +497,7 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
                 None,
             )
 
-        if "type_uuid" in validated_data:
-            validated_data.pop("type_uuid")
-            instance.service_type = self._service_type
 
-        if "unit_uuid" in validated_data:
-            validated_data.pop("unit_uuid")
-            instance.unit = self._unit
 
         return super().update(
             instance,
@@ -686,8 +600,7 @@ class MyServiceReadSerializer(serializers.ModelSerializer):
     business = ServiceBusinessSerializer(read_only=True)
     category = ServiceCategorySerializer(read_only=True)
     subcategory = ServiceSubCategorySerializer(read_only=True)
-    service_type = ServiceTypeLiteSerializer(read_only=True)
-    unit = ServiceUnitSerializer(read_only=True)
+    
 
     employees = ServiceEmployeeReadSerializer(
         source="employee_assignments",
@@ -707,8 +620,7 @@ class MyServiceReadSerializer(serializers.ModelSerializer):
             "business",
             "category",
             "subcategory",
-            "service_type",
-            "unit",
+          
             "employees",
             "is_active",
             "created_at",

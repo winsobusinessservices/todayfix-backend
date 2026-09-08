@@ -146,17 +146,7 @@ class Service(TimeStampedModel):
         blank=True,
     )
 
-    service_type = models.ForeignKey(
-        ServiceType,
-        on_delete=models.PROTECT,
-        related_name="services",
-    )
 
-    unit = models.ForeignKey(
-        Unit,
-        on_delete=models.PROTECT,
-        related_name="services",
-    )
 
     name = models.CharField(
         max_length=200,

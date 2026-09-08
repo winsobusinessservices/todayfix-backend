@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path,include
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularSwaggerView
+
+from core.schema import TodayFixSchemaGenerator
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -36,7 +38,10 @@ urlpatterns = [
 
     path(
         "api/schema/",
-        SpectacularAPIView.as_view(api_version="v1"),
+        SpectacularAPIView.as_view(
+            api_version="v1",
+            generator_class=TodayFixSchemaGenerator,
+        ),
         name="schema",
     ),
 

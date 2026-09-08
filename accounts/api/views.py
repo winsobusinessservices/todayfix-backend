@@ -23,8 +23,8 @@ from rest_framework.permissions import (
     AllowAny,
 )
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.shortcuts import get_object_or_404
-from django.conf import settings
+from django.db import IntegrityError, transaction
+
 from django.template.loader import render_to_string
 from django.core.mail import EmailMultiAlternatives
 from accounts.models import (
@@ -768,13 +768,30 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
             raise_exception=True
         )
         user = request.user
-        user.phone = serializer.validated_data["phone"]
-        user.save(
-            update_fields=[
-                "phone",
-                "updated_at",
-            ]
-        )
+        new_phone = serializer.validated_data["phone"]
+
+        try:
+            with transaction.atomic():
+                user.phone = new_phone
+                user.save(
+                    update_fields=[
+                        "phone",
+                        "updated_at",
+                    ]
+                )
+        except IntegrityError as exc:
+            if "phone" in str(exc).lower():
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Phone number already exists."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+
         return Response(
             {
                 "success": True,
@@ -1835,52 +1852,108 @@ class GoogleLoginAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         User = get_user_model()
-        # --------------------------------------------------
-        # 1. Check whether this Google account already exists
-        # --------------------------------------------------
-        google_identity = (
-            GoogleIdentity.objects
-            .select_related("user")
-            .filter(google_sub=google_sub)
-            .first()
-        )
-        if google_identity:
-            user = google_identity.user
-        else:
-            # ----------------------------------------------
-            # 2. Check whether the verified email already
-            #    belongs to an existing TodayFix user
-            # ----------------------------------------------
-            user = User.objects.filter(
-                email__iexact=email
-            ).first()
-            if user:
-                # Link Google identity to existing user
-                GoogleIdentity.objects.create(
-                    user=user,
-                    google_sub=google_sub,
-                    google_email=email,
+
+        try:
+            with transaction.atomic():
+                # --------------------------------------------------
+                # 1. Check whether this Google account already exists
+                # --------------------------------------------------
+                google_identity = (
+                    GoogleIdentity.objects
+                    .select_related("user")
+                    .filter(google_sub=google_sub)
+                    .first()
                 )
+
+                if google_identity:
+                    user = google_identity.user
+                else:
+                    # ----------------------------------------------
+                    # 2. Check whether the verified email already
+                    #    belongs to an existing TodayFix user
+                    # ----------------------------------------------
+                    user = User.objects.filter(
+                        email__iexact=email
+                    ).first()
+
+                    if user:
+                        # Lock the existing user while linking Google.
+                        user = (
+                            User.objects
+                            .select_for_update()
+                            .get(pk=user.pk)
+                        )
+
+                        # Another simultaneous request may have
+                        # created the Google identity after our first
+                        # lookup, so check again before creating it.
+                        google_identity = (
+                            GoogleIdentity.objects
+                            .filter(user=user)
+                            .first()
+                        )
+
+                        if google_identity:
+                            user = google_identity.user
+                        else:
+                            GoogleIdentity.objects.create(
+                                user=user,
+                                google_sub=google_sub,
+                                google_email=email,
+                            )
+                    else:
+                        # ------------------------------------------
+                        # 3. Create a new TodayFix user and Google
+                        #    identity in the same transaction.
+                        # ------------------------------------------
+                        user = User.objects.create(
+                            email=email,
+                            first_name=first_name,
+                            last_name=last_name,
+                            is_verified=True,
+                            is_active=True,
+                        )
+                        user.set_unusable_password()
+                        user.save(
+                            update_fields=["password"]
+                        )
+
+                        GoogleIdentity.objects.create(
+                            user=user,
+                            google_sub=google_sub,
+                            google_email=email,
+                        )
+
+        except IntegrityError:
+            # A simultaneous first-time Google request may have
+            # created the user/Google identity first. Recover by
+            # reading the account created by that request instead
+            # of allowing the IntegrityError to become a 500.
+            google_identity = (
+                GoogleIdentity.objects
+                .select_related("user")
+                .filter(google_sub=google_sub)
+                .first()
+            )
+
+            if google_identity:
+                user = google_identity.user
             else:
-                # ------------------------------------------
-                # 3. Create a new TodayFix user
-                # ------------------------------------------
-                user = User.objects.create(
-                    email=email,
-                    first_name=first_name,
-                    last_name=last_name,
-                    is_verified=True,
-                    is_active=True,
+                user = User.objects.filter(
+                    email__iexact=email
+                ).first()
+
+                if not user:
+                    raise
+
+                google_identity = (
+                    GoogleIdentity.objects
+                    .filter(user=user)
+                    .first()
                 )
-                user.set_unusable_password()
-                user.save(
-                    update_fields=["password"]
-                )
-                GoogleIdentity.objects.create(
-                    user=user,
-                    google_sub=google_sub,
-                    google_email=email,
-                )
+
+                if not google_identity:
+                    raise
         # --------------------------------------------------
         # 4. Make sure the TodayFix account is active
         # --------------------------------------------------

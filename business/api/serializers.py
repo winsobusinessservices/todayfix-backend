@@ -1,5 +1,6 @@
 import mimetypes
 
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from rest_framework import serializers
 
@@ -694,8 +695,21 @@ class RejectBusinessApplicationSerializer(
 class BusinessProfileSerializer(
     serializers.ModelSerializer
 ):
-    identity = serializers.SerializerMethodField()
-    cat_uuid = serializers.UUIDField(
+    business_name = serializers.CharField(
+        source="name"
+    )
+    contact_phone = serializers.CharField(
+        source="phone"
+    )
+    contact_email = serializers.EmailField(
+        source="email"
+    )
+    address = serializers.CharField(
+        source="location"
+    )
+    logo_url = serializers.SerializerMethodField()
+    banner_url = serializers.SerializerMethodField()
+    category_uuid = serializers.UUIDField(
         source="category.cat_uuid",
         read_only=True,
     )
@@ -705,29 +719,34 @@ class BusinessProfileSerializer(
 
         fields = (
             "business_profile_uuid",
-            "owner",
-            "business_type",
-            "cat_uuid",
-            "name",
+            "business_name",
             "description",
-            "location",
-            "email",
-            "phone",
+            "contact_phone",
+            "contact_email",
+            "address",
+            "logo_url",
+            "banner_url",
+            "business_type",
             "website",
             "is_active",
             "created_at",
-            "identity",
+            "category_uuid",
         )
 
         read_only_fields = (
             "business_profile_uuid",
-            "owner",
+            "business_name",
+            "contact_phone",
+            "contact_email",
+            "address",
+            "logo_url",
+            "banner_url",
             "business_type",
             "created_at",
-            "identity",
+            "category_uuid",
         )
 
-    def get_identity(self, obj):
+    def get_logo_url(self, obj):
         identity = (
             BusinessIdentity.objects
             .filter(
@@ -737,67 +756,20 @@ class BusinessProfileSerializer(
             .first()
         )
 
-        if not identity:
+        if not identity or not identity.logo:
             return None
 
         request = self.context.get("request")
 
-        def file_url(file_field):
-            if not file_field or not file_field.name:
-                return None
+        if request:
+            return request.build_absolute_uri(
+                identity.logo.url
+            )
 
-            url = f"/media/{file_field.name}"
+        return identity.logo.url
 
-            if request:
-                return request.build_absolute_uri(url)
-
-            return url
-
-        return {
-            "business_identity_uuid": str(
-                identity.business_identity_uuid
-            ),
-
-            "pan_number": identity.pan_number,
-            "pan_document": file_url(
-                identity.pan_document
-            ),
-
-            "aadhaar_number": identity.aadhaar_number,
-            "aadhaar_document": file_url(
-                identity.aadhaar_document
-            ),
-
-            "gst_number": identity.gst_number,
-            "udyam_number": identity.udyam_number,
-            "labour_license_number": (
-                identity.labour_license_number
-            ),
-            "bbmp_license_number": (
-                identity.bbmp_license_number
-            ),
-            "food_license_number": (
-                identity.food_license_number
-            ),
-
-            "internal_store_photo": file_url(
-                identity.internal_store_photo
-            ),
-            "external_store_photo": file_url(
-                identity.external_store_photo
-            ),
-            "cancelled_gst_bill_book_photo": file_url(
-                identity.cancelled_gst_bill_book_photo
-            ),
-            "logo": file_url(
-                identity.logo
-            ),
-
-            "website": identity.website,
-            "created_at": identity.created_at,
-            "updated_at": identity.updated_at,
-        }
-
+    def get_banner_url(self, obj):
+        return None
 #=============================================================================================================================
 #                       Create Employee Seriaalizer
 #=============================================================================================================================
@@ -1099,9 +1071,53 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
 
             validated_data["employee"] = employee
 
-        return EmployeeWorkingSchedule.objects.create(
-            **validated_data
-        )
+        business = validated_data["business"]
+        day_of_week = validated_data["day_of_week"]
+        slot_type = validated_data["slot_type"]
+        owner = validated_data.get("owner")
+        employee = validated_data.get("employee")
+
+        duplicate_filter = {
+            "business": business,
+            "day_of_week": day_of_week,
+            "slot_type": slot_type,
+        }
+
+        if employee:
+            duplicate_filter["employee"] = employee
+        else:
+            duplicate_filter["owner"] = owner
+
+        if EmployeeWorkingSchedule.objects.filter(
+            **duplicate_filter
+        ).exists():
+            raise serializers.ValidationError({
+                "day_of_week": (
+                    f"{day_of_week} {slot_type} schedule "
+                    "already exists for this provider."
+                )
+            })
+
+        try:
+            with transaction.atomic():
+                return EmployeeWorkingSchedule.objects.create(
+                    **validated_data
+                )
+        except IntegrityError as exc:
+            error_message = str(exc)
+
+            if (
+                "unique_owner_schedule_slot" in error_message
+                or "unique_employee_schedule_slot" in error_message
+            ):
+                raise serializers.ValidationError({
+                    "day_of_week": (
+                        f"{day_of_week} {slot_type} schedule "
+                        "already exists for this provider."
+                    )
+                })
+
+            raise
 
 class BusinessApplicationDocumentsSerializer(
     serializers.Serializer
