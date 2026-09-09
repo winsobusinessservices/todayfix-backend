@@ -189,10 +189,18 @@ class BusinessApplicationSubmitSerializer(serializers.Serializer):
     This serializer is used only for submitting an application.
     """
 
-    details = BusinessApplicationDetailsSerializer(
-        required=True,
-        allow_null=False
-    )
+    # details = BusinessApplicationDetailsSerializer(
+    #     required=True,
+    #     allow_null=False
+    # )
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["details"] = BusinessApplicationDetailsSerializer(
+            required=True,
+            allow_null=False,
+            context=self.context,
+        )
 
     # =====================================================
     # DOCUMENTS & PHOTOS
