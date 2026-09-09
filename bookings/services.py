@@ -408,6 +408,19 @@ class BookingService:
             )
 
         # =====================================================
+        # NOTIFICATION
+        # =====================================================
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=business.owner,
+            notification_type=NotificationType.BOOKING_CREATED,
+            title="New Booking",
+            message=f"New booking received from {user.first_name}.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+
+        # =====================================================
         # TRANSACTION COMMIT
         # =====================================================
         #
@@ -705,7 +718,7 @@ class BookingService:
     def cancel_booking(booking):
         """User cancels a booking."""
 
-        return BookingService._transition_status(
+        booking = BookingService._transition_status(
             booking,
             [
                 BookingStatus.PENDING,
@@ -714,12 +727,23 @@ class BookingService:
             BookingStatus.CANCELLED,
             "Only pending or confirmed bookings can be cancelled.",
         )
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.business.owner,
+            notification_type=NotificationType.BOOKING_CANCELLED,
+            title="Booking Cancelled",
+            message=f"Booking cancelled by {booking.user.first_name}.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+        return booking
 
     @staticmethod
     def accept_booking(booking):
         """Business accepts a booking."""
 
-        return BookingService._transition_status(
+        booking = BookingService._transition_status(
             booking,
             [
                 BookingStatus.PENDING,
@@ -727,12 +751,22 @@ class BookingService:
             BookingStatus.CONFIRMED,
             "Only pending bookings can be accepted.",
         )
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.user,
+            notification_type=NotificationType.BOOKING_ACCEPTED,
+            title="Booking Accepted",
+            message="Your booking has been accepted by the business.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+        return booking
 
     @staticmethod
     def reject_booking(booking):
         """Business rejects a booking."""
 
-        return BookingService._transition_status(
+        booking = BookingService._transition_status(
             booking,
             [
                 BookingStatus.PENDING,
@@ -740,12 +774,22 @@ class BookingService:
             BookingStatus.REJECTED,
             "Only pending bookings can be rejected.",
         )
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.user,
+            notification_type=NotificationType.BOOKING_REJECTED,
+            title="Booking Rejected",
+            message="Your booking was rejected by the business.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+        return booking
 
     @staticmethod
     def start_booking(booking):
         """Business starts the service."""
 
-        return BookingService._transition_status(
+        booking = BookingService._transition_status(
             booking,
             [
                 BookingStatus.CONFIRMED,
@@ -753,12 +797,22 @@ class BookingService:
             BookingStatus.IN_PROGRESS,
             "Only confirmed bookings can be started.",
         )
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.user,
+            notification_type=NotificationType.SERVICE_STARTED,
+            title="Service Started",
+            message="Your service has started.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+        return booking
 
     @staticmethod
     def complete_booking(booking):
         """Business completes the service."""
 
-        return BookingService._transition_status(
+        booking = BookingService._transition_status(
             booking,
             [
                 BookingStatus.IN_PROGRESS,
@@ -766,3 +820,13 @@ class BookingService:
             BookingStatus.COMPLETED,
             "Only in-progress bookings can be completed.",
         )
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.user,
+            notification_type=NotificationType.SERVICE_COMPLETED,
+            title="Service Completed",
+            message="Your service has been completed.",
+            data={"booking_id": str(booking.booking_uuid)}
+        )
+        return booking

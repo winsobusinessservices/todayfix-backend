@@ -295,10 +295,21 @@ class InstantBookingCreateAPIView(APIView):
             offer_round=1,
         )
 
-        InstantBookingOfferService.create_offers(
+        offers = InstantBookingOfferService.create_offers(
             booking=booking,
             candidates=quote["candidates"],
         )
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        for offer in offers:
+            NotificationService.create(
+                recipient=offer.business.owner,
+                notification_type=NotificationType.INSTANT_BOOKING_CREATED,
+                title="New Instant Booking Request",
+                message=f"New instant booking request for {booking.requested_service_name}.",
+                data={"booking_id": str(booking.instant_booking_uuid)}
+            )
 
         booking.refresh_from_db()
 
@@ -496,6 +507,16 @@ class BusinessInstantBookingOfferAcceptAPIView(APIView):
 
         from chat_service.services import ChatService
         ChatService.get_or_create_conversation_for_instant_booking(booking)
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.customer,
+            notification_type=NotificationType.INSTANT_BOOKING_ACCEPTED,
+            title="Instant Booking Accepted",
+            message=f"Your instant booking was accepted by {offer.business.business_name}.",
+            data={"booking_id": str(booking.instant_booking_uuid)}
+        )
 
         return Response(
             {
@@ -542,6 +563,17 @@ class CustomerInstantBookingCancelAPIView(APIView):
 
         booking.status = InstantBookingStatus.CANCELLED
         booking.save(update_fields=["status", "updated_at"])
+        
+        if booking.assigned_business:
+            from notifications.services import NotificationService
+            from notifications.choices import NotificationType
+            NotificationService.create(
+                recipient=booking.assigned_business.owner,
+                notification_type=NotificationType.INSTANT_BOOKING_CANCELLED,
+                title="Booking Cancelled",
+                message="The customer has cancelled the instant booking.",
+                data={"booking_id": str(booking.instant_booking_uuid)}
+            )
 
         return Response(
             {
@@ -590,6 +622,16 @@ class BusinessInstantBookingStartAPIView(APIView):
 
         booking.status = InstantBookingStatus.IN_PROGRESS
         booking.save(update_fields=["status", "updated_at"])
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.customer,
+            notification_type=NotificationType.SERVICE_STARTED,
+            title="Service Started",
+            message="Your instant service has started.",
+            data={"booking_id": str(booking.instant_booking_uuid)}
+        )
 
         return Response(
             {
@@ -638,6 +680,16 @@ class BusinessInstantBookingCompleteAPIView(APIView):
 
         booking.status = InstantBookingStatus.COMPLETED
         booking.save(update_fields=["status", "updated_at"])
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        NotificationService.create(
+            recipient=booking.customer,
+            notification_type=NotificationType.SERVICE_COMPLETED,
+            title="Service Completed",
+            message="Your instant service has been completed.",
+            data={"booking_id": str(booking.instant_booking_uuid)}
+        )
 
         return Response(
             {
