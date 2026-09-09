@@ -23,7 +23,16 @@ from .views import (
     BusinessApplicationPendingListAPIView,
     BusinessApplicationAcceptedListAPIView,
     BusinessApplicationRejectedListAPIView,
-    BusinessApplicationDocumentsAPIView
+    BusinessApplicationDocumentsAPIView,
+    BusinessApplicationDocumentViewAPIView,
+    BusinessUpgradeRequestCreateAPIView,
+    AdminRejectBusinessUpgradeRequestAPIView, 
+    BusinessUpgradeRequestListAPIView,
+    BusinessUpgradeRequestDocumentsAPIView,
+    BusinessUpgradeRequestDocumentViewAPIView,
+    AdminApproveBusinessUpgradeRequestAPIView,
+    AdminBusinessUpgradeRequestListAPIView
+
 )
 
 
@@ -51,15 +60,33 @@ urlpatterns = [
         name="business-application-detail",
     ),
 
-    
+
     path(
         "applications/<uuid:business_application_uuid>/documents/",
         BusinessApplicationDocumentsAPIView.as_view(),
         name="business-application-documents",
     ),
+
+    path(
+        "upgrade-requests/list/",
+        BusinessUpgradeRequestListAPIView.as_view(),
+        name="business-upgrade-request-list",
+    ),
+
+    path(
+        "upgrade-requests/<uuid:business_upgrade_request_uuid>/documents/",
+        BusinessUpgradeRequestDocumentsAPIView.as_view(),
+        name="business-upgrade-request-documents",
+    ),
+
+    path(
+        "upgrade-requests/<uuid:business_upgrade_request_uuid>/documents/<str:document_key>/view/",
+        BusinessUpgradeRequestDocumentViewAPIView.as_view(),
+        name="business-upgrade-request-document-view",
+    ),
+
     # =====================================================
-    # ADMIN - BUSINESS APPLICATION
-    # =====================================================
+    # ADMIN - BUSINESS UPGRADE REQUEST
 
     path(
         "admin/applications/",
@@ -136,7 +163,7 @@ urlpatterns = [
         name="employee-delete",
     ),
 
-    
+
     # =====================================================
     # PROVIDER AVAILABILITY
     # =====================================================
@@ -177,10 +204,49 @@ urlpatterns = [
         name="working-schedule-update",
     ),
 
-    path(
+        path(
         "working-schedules/<uuid:employee_working_schedule_uuid>/delete/",
         EmployeeWorkingScheduleDeleteAPIView.as_view(),
         name="working-schedule-delete",
     ),
+
+    # =====================================================
+    # USER - BUSINESS UPGRADE REQUEST
+    # =====================================================
+
+    path(
+        "upgrade-requests/",
+        BusinessUpgradeRequestCreateAPIView.as_view(),
+        name="business-upgrade-request-create",
+    ),
+
+    path(
+        "upgrade-requests/list/",
+        BusinessUpgradeRequestListAPIView.as_view(),
+        name="business-upgrade-request-list",
+    ),
+
+    # =====================================================
+    # ADMIN - BUSINESS UPGRADE REQUEST
+    # =====================================================
+
+    path(
+        "admin/upgrade-requests/",
+        AdminBusinessUpgradeRequestListAPIView.as_view(),
+        name="admin-business-upgrade-request-list",
+    ),
+
+    path(
+        "admin/upgrade-requests/<uuid:business_upgrade_request_uuid>/approve/",
+        AdminApproveBusinessUpgradeRequestAPIView.as_view(),
+        name="admin-business-upgrade-request-approve",
+    ),
+
+    path(
+        "admin/upgrade-requests/<uuid:business_upgrade_request_uuid>/reject/",
+        AdminRejectBusinessUpgradeRequestAPIView.as_view(),
+        name="admin-business-upgrade-request-reject",
+    ),
+
 ]
 

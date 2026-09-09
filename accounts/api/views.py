@@ -4,24 +4,28 @@ from rest_framework.compat import requests
 from accounts.api.serializers import GoogleLoginSerializer
 import logging
 from accounts.choices import UserRole
+from accounts.document_utils import get_profile_picture_url
+from common.document_utils import serve_document_file
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.conf import settings
 from rest_framework.generics import CreateAPIView
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiResponse,
     OpenApiExample,
+    OpenApiTypes,
 )
 from rest_framework.permissions import (
     IsAuthenticated,
     AllowAny,
 )
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.shortcuts import get_object_or_404
-from django.conf import settings
+from django.db import IntegrityError, transaction
+
 from django.template.loader import render_to_string
 from django.core.mail import EmailMultiAlternatives
 from accounts.models import (
@@ -70,6 +74,7 @@ logger = logging.getLogger(__name__)
     request=RegisterUserSerializer,
     responses={
         201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
             description="Verification email sent successfully.",
             examples=[
                 OpenApiExample(
@@ -212,7 +217,40 @@ class RegisterUserAPIView(CreateAPIView):
         "verification token received by email."
     ),
     request=VerifyEmailSerializer,
+
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Email verified successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Signup successful.",
+                        "data": {
+                            "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "user": {
+                                "id": 12,
+                                "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "email": "ravi.kumar@example.com",
+                                "phone": "9876543210",
+                                "role": "CUSTOMER",
+                                "profileImage": "",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
+
+
 class VerifyEmailAPIView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
@@ -249,11 +287,7 @@ class VerifyEmailAPIView(APIView):
                         "email": user.email,
                         "phone": user.phone,
                         "role": user.role,
-                        "profileImage": (
-                            user.profile_picture.url
-                            if user.profile_picture
-                            else ""
-                        )
+                        "profileImage": get_profile_picture_url(user, request)
                     },
                 },
             },
@@ -268,6 +302,36 @@ class VerifyEmailAPIView(APIView):
     summary="Login",
     description="Login using email and password.",
     request=LoginSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Login successful.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Login successful.",
+                        "data": {
+                            "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "user": {
+                                "id": 12,
+                                "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "email": "ravi.kumar@example.com",
+                                "phone": "9876543210",
+                                "role": "CUSTOMER",
+                                "profileImage": "",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class LoginAPIView(CreateAPIView):
     serializer_class = LoginSerializer
@@ -326,6 +390,23 @@ class LoginAPIView(CreateAPIView):
         "Logout the user by blacklisting the refresh token."
     ),
     request=LogoutSerializer,
+
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Logout successful.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Logout successful.",
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class LogoutAPIView(CreateAPIView):
     serializer_class = LogoutSerializer
@@ -360,6 +441,53 @@ class LogoutAPIView(CreateAPIView):
         "Retrieve the profile details "
         "of the authenticated user."
     ),
+
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Profile fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Profile fetched successfully.",
+                        "data": {
+                            "id": 12,
+                            "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                            "firstName": "Ravi",
+                            "lastName": "Kumar",
+                            "role": "CUSTOMER",
+                            "hasBusiness": False,
+                            "businessVerified": False,
+                            "businessStatus": None,
+                            "email": "ravi.kumar@example.com",
+                            "profileImage": "",
+                            "phone": "9876543210",
+                            "joinedate": "Jan 2026",
+                            "addresses": [
+                                {
+                                    "add_uuid": "c4d5e6f7-8901-4abc-9def-123456789abc",
+                                    "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                    "address_line": "221B Baker Street",
+                                    "locality": "Indiranagar",
+                                    "city": "Bengaluru",
+                                    "state": "Karnataka",
+                                    "pincode": "560038",
+                                    "location": "",
+                                    "address_type": "HOME",
+                                    "is_default": True,
+                                    "created_at": "2026-01-15T10:30:00Z",
+                                    "updated_at": "2026-01-15T10:30:00Z",
+                                },
+                            ],
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class ProfileAPIView(APIView):
     permission_classes = [
@@ -426,6 +554,55 @@ class ProfileAPIView(APIView):
         "A new phone number requires OTP verification."
     ),
     request=UpdateProfileSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Profile updated, or an OTP was sent because "
+                "the phone number changed."
+            ),
+            examples=[
+                OpenApiExample(
+                    "Profile updated",
+                    value={
+                        "success": True,
+                        "message": "Profile updated successfully.",
+                        "data": {
+                            "id": 12,
+                            "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                            "firstName": "Ravi",
+                            "lastName": "Kumar",
+                            "role": "CUSTOMER",
+                            "hasBusiness": False,
+                            "businessVerified": False,
+                            "businessStatus": None,
+                            "email": "ravi.kumar@example.com",
+                            "profileImage": "",
+                            "phone": "9876543210",
+                            "joinedate": "Jan 2026",
+                            "addresses": [],
+                        },
+                    },
+                    response_only=True,
+                ),
+                OpenApiExample(
+                    "Phone change - OTP sent",
+                    value={
+                        "success": True,
+                        "message": (
+                            "OTP sent successfully. Please verify "
+                            "the OTP to update your phone number."
+                        ),
+                        "data": {
+                            "phone": "9123456780",
+                            "otp_required": True,
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UpdateProfileAPIView(APIView):
     permission_classes = [
@@ -557,6 +734,22 @@ class UpdateProfileAPIView(APIView):
     request=VerifyPhoneUpdateOTPSerializer,
     tags=["Accounts"],
     summary="Verify Phone Update OTP",
+        responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Phone number updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Phone number updated successfully.",
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class VerifyPhoneUpdateOTPAPIView(APIView):
     permission_classes = [
@@ -576,13 +769,30 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
             raise_exception=True
         )
         user = request.user
-        user.phone = serializer.validated_data["phone"]
-        user.save(
-            update_fields=[
-                "phone",
-                "updated_at",
-            ]
-        )
+        new_phone = serializer.validated_data["phone"]
+
+        try:
+            with transaction.atomic():
+                user.phone = new_phone
+                user.save(
+                    update_fields=[
+                        "phone",
+                        "updated_at",
+                    ]
+                )
+        except IntegrityError as exc:
+            if "phone" in str(exc).lower():
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Phone number already exists."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+
         return Response(
             {
                 "success": True,
@@ -602,6 +812,38 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
         "Retrieve all addresses of "
         "the authenticated user."
     ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Addresses fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Addresses fetched successfully.",
+                        "data": [
+                            {
+                                "add_uuid": "c4d5e6f7-8901-4abc-9def-123456789abc",
+                                "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                "address_line": "221B Baker Street",
+                                "locality": "Indiranagar",
+                                "city": "Bengaluru",
+                                "state": "Karnataka",
+                                "pincode": "560038",
+                                "location": "",
+                                "address_type": "HOME",
+                                "is_default": True,
+                                "created_at": "2026-01-15T10:30:00Z",
+                                "updated_at": "2026-01-15T10:30:00Z",
+                            },
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class ListUserAddressesAPIView(APIView):
     permission_classes = [
@@ -639,6 +881,45 @@ class ListUserAddressesAPIView(APIView):
         "the authenticated user."
     ),
     request=AddressSerializer,
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Address added successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Address added successfully.",
+                        "data": {
+                            "add_uuid": "c4d5e6f7-8901-4abc-9def-123456789abc",
+                            "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                            "address_line": "221B Baker Street",
+                            "locality": "Indiranagar",
+                            "city": "Bengaluru",
+                            "state": "Karnataka",
+                            "pincode": "560038",
+                            "location": "",
+                            "address_type": "HOME",
+                            "is_default": True,
+                            "created_at": "2026-01-15T10:30:00Z",
+                            "updated_at": "2026-01-15T10:30:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+                OpenApiExample(
+                    "Address limit reached",
+                    value={
+                        "success": False,
+                        "message": "You can have a maximum of 5 addresses.",
+                    },
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+            ],
+        ),
+    },
 )
 class CreateUserAddressAPIView(APIView):
     permission_classes = [
@@ -691,8 +972,36 @@ class CreateUserAddressAPIView(APIView):
         "of the authenticated user."
     ),
     responses={
-        200: AddressSerializer
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Address fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Address fetched successfully.",
+                        "data": {
+                            "add_uuid": "c4d5e6f7-8901-4abc-9def-123456789abc",
+                            "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                            "address_line": "221B Baker Street",
+                            "locality": "Indiranagar",
+                            "city": "Bengaluru",
+                            "state": "Karnataka",
+                            "pincode": "560038",
+                            "location": "",
+                            "address_type": "HOME",
+                            "is_default": True,
+                            "created_at": "2026-01-15T10:30:00Z",
+                            "updated_at": "2026-01-15T10:30:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
     },
+
 )
 class GetUserAddressAPIView(APIView):
     permission_classes = [
@@ -732,6 +1041,36 @@ class GetUserAddressAPIView(APIView):
         "of the authenticated user."
     ),
     request=AddressSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Address updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Address updated successfully.",
+                        "data": {
+                            "add_uuid": "c4d5e6f7-8901-4abc-9def-123456789abc",
+                            "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                            "address_line": "221B Baker Street",
+                            "locality": "Indiranagar",
+                            "city": "Bengaluru",
+                            "state": "Karnataka",
+                            "pincode": "560038",
+                            "location": "",
+                            "address_type": "WORK",
+                            "is_default": False,
+                            "created_at": "2026-01-15T10:30:00Z",
+                            "updated_at": "2026-02-01T09:15:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class UpdateUserAddressAPIView(APIView):
     permission_classes = [
@@ -776,6 +1115,31 @@ class UpdateUserAddressAPIView(APIView):
         "Delete an existing address "
         "of the authenticated user."
     ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Address deleted successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Address deleted successfully.",
+                    },
+                    response_only=True,
+                ),
+                OpenApiExample(
+                    "Not found",
+                    value={
+                        "success": False,
+                        "message": "Address not found.",
+                    },
+                    response_only=True,
+                    status_codes=["404"],
+                ),
+            ],
+        ),
+    },
 )
 class DeleteUserAddressAPIView(APIView):
     permission_classes = [
@@ -821,6 +1185,24 @@ class ForgotPasswordView(APIView):
         tags=["Login"],
         summary="Send password reset link",
         request=ForgotPasswordSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Password reset link sent successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Password reset link sent successfully."
+                            ),
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def post(
         self,
@@ -890,6 +1272,35 @@ class UnifiedPasswordResetView(APIView):
     @extend_schema(
         tags=["Login"],
         request=UnifiedPasswordResetSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Reset link sent, or password reset completed, "
+                    "depending on the request payload."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "Reset link sent",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Password reset link sent successfully."
+                            ),
+                        },
+                        response_only=True,
+                    ),
+                    OpenApiExample(
+                        "Password reset",
+                        value={
+                            "success": True,
+                            "message": "Password reset successfully.",
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def post(
         self,
@@ -1028,6 +1439,36 @@ class UnifiedPasswordResetView(APIView):
         "Verify the OTP sent to a new user's "
         "phone number."
     ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Signup successful.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Signup successful.",
+                        "data": {
+                            "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "user": {
+                                "id": 12,
+                                "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "email": "",
+                                "phone": "9876543210",
+                                "role": "CUSTOMER",
+                                "profileImage": "",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class SignupVerifyOTPAPIView(APIView):
     authentication_classes = []
@@ -1101,6 +1542,34 @@ class SignupVerifyOTPAPIView(APIView):
     request=LoginSendOTPSerializer,
     tags=["Login"],
     summary="Send Login OTP",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="OTP sent successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "OTP sent successfully.",
+                    },
+                    response_only=True,
+                ),
+                OpenApiExample(
+                    "Rate limited",
+                    value={
+                        "success": False,
+                        "message": (
+                            "Please wait 60 seconds before "
+                            "requesting another OTP."
+                        ),
+                    },
+                    response_only=True,
+                    status_codes=["429"],
+                ),
+            ],
+        ),
+    },
 )
 class LoginSendOTPAPIView(APIView):
     authentication_classes = []
@@ -1169,6 +1638,44 @@ class LoginSendOTPAPIView(APIView):
     request=VerifyOTPSerializer,
     tags=["Login"],
     summary="Verify Login OTP",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="OTP verified. Login successful.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "OTP verified. Login successful.",
+                        "data": {
+                            "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "user": {
+                                "id": 12,
+                                "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                "first_name": "Ravi",
+                                "last_name": "Kumar",
+                                "email": "ravi.kumar@example.com",
+                                "phone": "9876543210",
+                                "role": "CUSTOMER",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+                OpenApiExample(
+                    "Invalid OTP",
+                    value={
+                        "success": False,
+                        "message": "Invalid or expired OTP.",
+                    },
+                    response_only=True,
+                    status_codes=["400"],
+                ),
+            ],
+        ),
+    },
 )
 class LoginVerifyOTPAPIView(APIView):
     authentication_classes = []
@@ -1253,7 +1760,46 @@ class GoogleLoginAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
     @extend_schema(
+        tags=["Login"],
+        summary="Google Login",
         request=GoogleLoginSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Google login successful.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": "Google login successful.",
+                            "data": {
+                                "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                                "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                                "user": {
+                                    "id": 12,
+                                    "user_uuid": "b3f1c2d4-5678-4abc-9def-0123456789ab",
+                                    "email": "ravi.kumar@example.com",
+                                    "first_name": "Ravi",
+                                    "last_name": "Kumar",
+                                    "profileImage": "",
+                                },
+                            },
+                        },
+                        response_only=True,
+                    ),
+                    OpenApiExample(
+                        "Invalid credential",
+                        value={
+                            "success": False,
+                            "message": "Invalid Google credential.",
+                        },
+                        response_only=True,
+                        status_codes=["401"],
+                    ),
+                ],
+            ),
+        },
     )
     def post(self, request):
         serializer = GoogleLoginSerializer(data=request.data)
@@ -1307,52 +1853,108 @@ class GoogleLoginAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         User = get_user_model()
-        # --------------------------------------------------
-        # 1. Check whether this Google account already exists
-        # --------------------------------------------------
-        google_identity = (
-            GoogleIdentity.objects
-            .select_related("user")
-            .filter(google_sub=google_sub)
-            .first()
-        )
-        if google_identity:
-            user = google_identity.user
-        else:
-            # ----------------------------------------------
-            # 2. Check whether the verified email already
-            #    belongs to an existing TodayFix user
-            # ----------------------------------------------
-            user = User.objects.filter(
-                email__iexact=email
-            ).first()
-            if user:
-                # Link Google identity to existing user
-                GoogleIdentity.objects.create(
-                    user=user,
-                    google_sub=google_sub,
-                    google_email=email,
+
+        try:
+            with transaction.atomic():
+                # --------------------------------------------------
+                # 1. Check whether this Google account already exists
+                # --------------------------------------------------
+                google_identity = (
+                    GoogleIdentity.objects
+                    .select_related("user")
+                    .filter(google_sub=google_sub)
+                    .first()
                 )
+
+                if google_identity:
+                    user = google_identity.user
+                else:
+                    # ----------------------------------------------
+                    # 2. Check whether the verified email already
+                    #    belongs to an existing TodayFix user
+                    # ----------------------------------------------
+                    user = User.objects.filter(
+                        email__iexact=email
+                    ).first()
+
+                    if user:
+                        # Lock the existing user while linking Google.
+                        user = (
+                            User.objects
+                            .select_for_update()
+                            .get(pk=user.pk)
+                        )
+
+                        # Another simultaneous request may have
+                        # created the Google identity after our first
+                        # lookup, so check again before creating it.
+                        google_identity = (
+                            GoogleIdentity.objects
+                            .filter(user=user)
+                            .first()
+                        )
+
+                        if google_identity:
+                            user = google_identity.user
+                        else:
+                            GoogleIdentity.objects.create(
+                                user=user,
+                                google_sub=google_sub,
+                                google_email=email,
+                            )
+                    else:
+                        # ------------------------------------------
+                        # 3. Create a new TodayFix user and Google
+                        #    identity in the same transaction.
+                        # ------------------------------------------
+                        user = User.objects.create(
+                            email=email,
+                            first_name=first_name,
+                            last_name=last_name,
+                            is_verified=True,
+                            is_active=True,
+                        )
+                        user.set_unusable_password()
+                        user.save(
+                            update_fields=["password"]
+                        )
+
+                        GoogleIdentity.objects.create(
+                            user=user,
+                            google_sub=google_sub,
+                            google_email=email,
+                        )
+
+        except IntegrityError:
+            # A simultaneous first-time Google request may have
+            # created the user/Google identity first. Recover by
+            # reading the account created by that request instead
+            # of allowing the IntegrityError to become a 500.
+            google_identity = (
+                GoogleIdentity.objects
+                .select_related("user")
+                .filter(google_sub=google_sub)
+                .first()
+            )
+
+            if google_identity:
+                user = google_identity.user
             else:
-                # ------------------------------------------
-                # 3. Create a new TodayFix user
-                # ------------------------------------------
-                user = User.objects.create(
-                    email=email,
-                    first_name=first_name,
-                    last_name=last_name,
-                    is_verified=True,
-                    is_active=True,
+                user = User.objects.filter(
+                    email__iexact=email
+                ).first()
+
+                if not user:
+                    raise
+
+                google_identity = (
+                    GoogleIdentity.objects
+                    .filter(user=user)
+                    .first()
                 )
-                user.set_unusable_password()
-                user.save(
-                    update_fields=["password"]
-                )
-                GoogleIdentity.objects.create(
-                    user=user,
-                    google_sub=google_sub,
-                    google_email=email,
-                )
+
+                if not google_identity:
+                    raise
         # --------------------------------------------------
         # 4. Make sure the TodayFix account is active
         # --------------------------------------------------
@@ -1391,3 +1993,33 @@ class GoogleLoginAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# =========================================================
+# PROFILE PICTURE - VIEW (STREAMED)
+# =========================================================
+
+class ProfilePictureViewAPIView(APIView):
+    """
+    Streams a user's profile picture directly, instead of a raw
+    /media/ URL. Any logged-in user can view any other user's
+    profile picture (e.g. customer viewing a business owner's
+    photo) - just not anonymous/logged-out access.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Accounts"],
+        summary="View a user's profile picture",
+    )
+    def get(self, request, user_uuid):
+
+        user = get_object_or_404(
+            CustomUser,
+            user_uuid=user_uuid,
+        )
+
+        return serve_document_file(user.profile_picture)

@@ -1,8 +1,10 @@
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import (
+    OpenApiExample,
     OpenApiResponse,
+    OpenApiTypes,
     extend_schema,
 )
 
@@ -21,17 +23,26 @@ from rest_framework.views import APIView
 from accounts.choices import UserRole
 
 from ..choices import BusinessApplicationStatus, BusinessType, EmployeeAvailabilityStatus
+
 from ..models import (
     BusinessApplication,
     BusinessBankAccount,
     BusinessIdentity,
     BusinessProfile,
+    BusinessUpgradeIdentity,
+    BusinessUpgradeRequest,
     Employee,
     ProviderAvailability,
     EmployeeWorkingSchedule,
 )
+
 from ..permissions import IsAdminRole, IsApprovedBusiness, IsEmployeeManagementAllowed
-from ..services import BusinessApplicationService
+from ..services import (
+    BusinessApplicationService,
+    BusinessUpgradeService,
+    get_current_business_identity,
+)
+from ..document_utils import serve_document_file
 
 from .serializers import (
     BusinessApplicationFullSerializer,
@@ -44,6 +55,9 @@ from .serializers import (
     ProviderAvailabilitySerializer,
     EmployeeWorkingScheduleSerializer,
     BusinessApplicationDocumentsSerializer,
+    BusinessUpgradeRequestSubmitSerializer,
+    BusinessUpgradeRequestFullSerializer,
+    BusinessUpgradeRequestDocumentsSerializer,
 )
 
 from rest_framework.generics import (
@@ -55,7 +69,7 @@ from rest_framework.generics import (
 
 from django.db.models import Q
 
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 
 
 # =========================================================
@@ -81,32 +95,70 @@ class BusinessApplicationCreateAPIView(APIView):
         description=(
             "Only USER accounts can use this API. "
             "All business application information must "
-            "be submitted in ONE multipart/form-data request.\n\n"
-
-            "INDIVIDUAL:\n"
-            "- PAN OR Aadhaar minimum one complete pair\n"
-            "- Bank details mandatory\n\n"
-
-            "COMPANY / INVESTOR:\n"
-            "- PAN number + document mandatory\n"
-            "- Aadhaar number + document mandatory\n"
-            "- At least one of GST/Udyam/Labour/BBMP/Food "
-            "registration mandatory\n"
-            "- Internal store photo mandatory\n"
-            "- External store photo mandatory\n"
-            "- Cancelled GST bill/book photo mandatory\n"
-            "- Logo optional\n"
-            "- Website optional\n"
-            "- Bank details mandatory"
+            "be submitted in ONE multipart/form-data request."
         ),
         request=BusinessApplicationSubmitSerializer,
         responses={
-            201: BusinessApplicationFullSerializer,
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Business application submitted successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Business application submitted "
+                                "successfully."
+                            ),
+                            "data": {
+                                "business_application_uuid": (
+                                    "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "business_type": "INDIVIDUAL",
+                                "location": "Bengaluru, Karnataka",
+                                "status": "PENDING",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
             400: OpenApiResponse(
-                description="Validation error"
+                response=OpenApiTypes.OBJECT,
+                description="Validation error.",
+                examples=[
+                    OpenApiExample(
+                        "Validation Error",
+                        value={
+                            "success": False,
+                            "message": "Validation error.",
+                            "errors": {
+                                "business_type": [
+                                    "This field is required."
+                                ]
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
             ),
             403: OpenApiResponse(
-                description="Only USER accounts allowed"
+                response=OpenApiTypes.OBJECT,
+                description="Permission denied.",
+                examples=[
+                    OpenApiExample(
+                        "Permission Denied",
+                        value={
+                            "success": False,
+                            "message": (
+                                "Only USER accounts can submit "
+                                "a business application."
+                            ),
+                        },
+                        response_only=True,
+                    ),
+                ],
             ),
         },
     )
@@ -424,9 +476,44 @@ class BusinessApplicationListAPIView(APIView):
     @extend_schema(
         tags=["Business Application"],
         summary="List my business applications",
-        responses=BusinessApplicationFullSerializer(
-            many=True
-        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Business applications fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Business applications fetched "
+                                "successfully."
+                            ),
+                            "data": [
+                                {
+                                    "user_uuid": (
+                                        "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "business_application_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user_email": "ravi@example.com",
+                                    "business_type": "INDIVIDUAL",
+                                    "location": "Bengaluru, Karnataka",
+                                    "status": "PENDING",
+                                    "identity": None,
+                                    "bank_account": None,
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "reviewed_at": None,
+                                    "rejection_reason": None,
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request):
 
@@ -473,9 +560,44 @@ class BusinessApplicationPendingListAPIView(APIView):
     @extend_schema(
         tags=["Business Administration"],
         summary="List pending business applications",
-        responses=BusinessApplicationFullSerializer(
-            many=True
-        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Pending applications fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Pending business applications "
+                                "fetched successfully."
+                            ),
+                            "data": [
+                                {
+                                    "user_uuid": (
+                                        "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "business_application_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user_email": "ravi@example.com",
+                                    "business_type": "COMPANY",
+                                    "location": "Bengaluru, Karnataka",
+                                    "status": "PENDING",
+                                    "identity": None,
+                                    "bank_account": None,
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "reviewed_at": None,
+                                    "rejection_reason": None,
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request):
 
@@ -522,10 +644,46 @@ class BusinessApplicationAcceptedListAPIView(APIView):
     @extend_schema(
         tags=["Business Administration"],
         summary="List accepted business applications",
-        responses=BusinessApplicationFullSerializer(
-            many=True
-        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Accepted applications fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Accepted business applications "
+                                "fetched successfully."
+                            ),
+                            "data": [
+                                {
+                                    "user_uuid": (
+                                        "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "business_application_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user_email": "ravi@example.com",
+                                    "business_type": "COMPANY",
+                                    "location": "Bengaluru, Karnataka",
+                                    "status": "APPROVED",
+                                    "identity": None,
+                                    "bank_account": None,
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "reviewed_at": "2026-09-04T12:00:00Z",
+                                    "rejection_reason": None,
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
+
     def get(self, request):
 
         applications = (
@@ -571,9 +729,44 @@ class BusinessApplicationRejectedListAPIView(APIView):
     @extend_schema(
         tags=["Business Administration"],
         summary="List rejected business applications",
-        responses=BusinessApplicationFullSerializer(
-            many=True
-        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Rejected applications fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Rejected business applications "
+                                "fetched successfully."
+                            ),
+                            "data": [
+                                {
+                                    "user_uuid": (
+                                        "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "business_application_uuid": (
+                                        "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "user_email": "ravi@example.com",
+                                    "business_type": "COMPANY",
+                                    "location": "Bengaluru, Karnataka",
+                                    "status": "REJECTED",
+                                    "identity": None,
+                                    "bank_account": None,
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "reviewed_at": "2026-09-04T12:00:00Z",
+                                    "rejection_reason": "Invalid documents.",
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request):
 
@@ -621,7 +814,42 @@ class BusinessApplicationDetailAPIView(APIView):
     @extend_schema(
         tags=["Business Application"],
         summary="View my business application",
-        responses=BusinessApplicationFullSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Business application fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": (
+                                "Business application fetched "
+                                "successfully."
+                            ),
+                            "data": {
+                                "user_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "business_application_uuid": (
+                                    "b3f1c2d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "user_email": "ravi@example.com",
+                                "business_type": "INDIVIDUAL",
+                                "location": "Bengaluru, Karnataka",
+                                "status": "PENDING",
+                                "identity": None,
+                                "bank_account": None,
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "reviewed_at": None,
+                                "rejection_reason": None,
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(
         self,
@@ -895,6 +1123,10 @@ class BusinessProfileListAPIView(APIView):
             .filter(
                 owner=request.user
             )
+            .select_related(
+                "category",
+                "owner",
+            )
         )
 
         serializer = (
@@ -980,7 +1212,31 @@ class BusinessProfileUpdateAPIView(APIView):
         "authenticated business."
     ),
     request=EmployeeCreateSerializer,
-    responses={201: EmployeeCreateSerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee created successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Employee created successfully.",
+                        "data": {
+                            "employee_uuid": (
+                                "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                            ),
+                            "name": "Mahesh",
+                            "phone": "9988776655",
+                            "email": "mahesh@example.com",
+                            "is_active": True,
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 
 class EmployeeCreateAPIView(CreateAPIView):
@@ -1014,9 +1270,21 @@ class EmployeeCreateAPIView(CreateAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        employee = serializer.save(
-            business=business,
-        )
+        try:
+            employee = serializer.save(
+                business=business,
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "An employee with this phone number "
+                        "already exists in your business."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -1039,7 +1307,32 @@ class EmployeeCreateAPIView(CreateAPIView):
         "List all employees belonging to the "
         "authenticated business."
     ),
-    responses={200: EmployeeListSerializer(many=True)},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employees fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "data": [
+                            {
+                                "employee_uuid": (
+                                    "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                                ),
+                                "name": "Mahesh",
+                                "phone": "9988776655",
+                                "email": "mahesh@example.com",
+                                "is_active": True,
+                            }
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeListAPIView(ListAPIView):
     serializer_class = EmployeeListSerializer
@@ -1069,8 +1362,33 @@ class EmployeeListAPIView(ListAPIView):
 @extend_schema(
     tags=["Business Employees"],
     summary="Update Employee",
+    description="Update an employee belonging to the authenticated business.",
     request=EmployeeUpdateSerializer,
-    responses={200: EmployeeUpdateSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Employee updated successfully.",
+                        "data": {
+                            "employee_uuid": (
+                                "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                            ),
+                            "name": "Mahesh Kumar",
+                            "phone": "9988776655",
+                            "email": "mahesh@example.com",
+                            "is_active": True,
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeUpdateAPIView(APIView):
 
@@ -1127,14 +1445,24 @@ class EmployeeUpdateAPIView(APIView):
 
 @extend_schema(
     tags=["Business Employees"],
-    summary="Deactivate Employee",
-    description=(
-        "Deactivate an employee belonging to the "
-        "authenticated business."
-    ),
-    responses={200: OpenApiResponse(
-        description="Employee deactivated successfully."
-    )},
+    summary="Delete Employee",
+    description="Deactivate an employee belonging to the authenticated business.",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Employee deleted successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": "Employee deleted successfully.",
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeDeleteAPIView(APIView):
 
@@ -1206,8 +1534,35 @@ class EmployeeDeleteAPIView(APIView):
     tags=["Service Provider Availability"],
     summary="Create Provider Availability",
     request=ProviderAvailabilitySerializer,
-    responses={201: ProviderAvailabilitySerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider availability created successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Provider availability created successfully."
+                        ),
+                        "data": {
+                            "provider_availability_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "employee_uuid": (
+                                "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                            ),
+                            "status": "AVAILABLE",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
+
 class ProviderAvailabilityCreateAPIView(APIView):
 
     permission_classes = [
@@ -1337,8 +1692,35 @@ class ProviderAvailabilityCreateAPIView(APIView):
     tags=["Service Provider Availability"],
     summary="Update Provider Availability",
     request=ProviderAvailabilitySerializer,
-    responses={200: ProviderAvailabilitySerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider availability updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Provider availability updated successfully."
+                        ),
+                        "data": {
+                            "provider_availability_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "employee_uuid": (
+                                "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                            ),
+                            "status": "BUSY",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
+
 class ProviderAvailabilityUpdateAPIView(APIView):
 
     permission_classes = [
@@ -1422,9 +1804,33 @@ class ProviderAvailabilityUpdateAPIView(APIView):
     tags=["Service Provider Availability"],
     summary="List Provider Availability",
     responses={
-        200: ProviderAvailabilitySerializer(many=True),
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider availability fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "data": [
+                            {
+                                "provider_availability_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "employee_uuid": (
+                                    "f5a6b7c8-5678-4abc-9def-0123456789ab"
+                                ),
+                                "status": "AVAILABLE",
+                            }
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
     },
 )
+
 class ProviderAvailabilityListAPIView(APIView):
 
     permission_classes = [
@@ -1479,7 +1885,44 @@ class ProviderAvailabilityListAPIView(APIView):
     tags=["Provider Working Schedule"],
     summary="Create Provider Working Schedule",
     request=EmployeeWorkingScheduleSerializer,
-    responses={201: EmployeeWorkingScheduleSerializer},
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider working schedule created successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Provider working schedule "
+                            "created successfully."
+                        ),
+                        "data": {
+                            "employee_working_schedule_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "business_uuid": (
+                                "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                            ),
+                            "owner_uuid": (
+                                "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                            ),
+                            "employee": None,
+                            "day_of_week": "MONDAY",
+                            "slot_type": "FULL_DAY",
+                            "start_time": "09:00:00",
+                            "end_time": "18:00:00",
+                            "is_active": True,
+                            "created_at": "2026-09-04T09:00:00Z",
+                            "updated_at": "2026-09-04T09:00:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeWorkingScheduleCreateAPIView(APIView):
 
@@ -1640,9 +2083,40 @@ class EmployeeWorkingScheduleCreateAPIView(APIView):
     tags=["Provider Working Schedule"],
     summary="List Provider Working Schedules",
     responses={
-        200: EmployeeWorkingScheduleSerializer(
-            many=True
-        )
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider working schedules fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "data": [
+                            {
+                                "employee_working_schedule_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "business_uuid": (
+                                    "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                                ),
+                                "owner_uuid": (
+                                    "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                                ),
+                                "employee": None,
+                                "day_of_week": "MONDAY",
+                                "slot_type": "FULL_DAY",
+                                "start_time": "09:00:00",
+                                "end_time": "18:00:00",
+                                "is_active": True,
+                                "created_at": "2026-09-04T09:00:00Z",
+                                "updated_at": "2026-09-04T09:00:00Z",
+                            }
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
     },
 )
 class EmployeeWorkingScheduleListAPIView(APIView):
@@ -1664,7 +2138,6 @@ class EmployeeWorkingScheduleListAPIView(APIView):
             EmployeeWorkingSchedule.objects
             .filter(
                 business=business,
-                is_active=True,
             )
             .select_related(
                 "business",
@@ -1695,12 +2168,48 @@ class EmployeeWorkingScheduleListAPIView(APIView):
 #                           UPDATE PROVIDER WORKING SCHEDULE
 # =================================================================================================================
 
-
 @extend_schema(
     tags=["Provider Working Schedule"],
     summary="Update Provider Working Schedule",
     request=EmployeeWorkingScheduleSerializer,
-    responses={200: EmployeeWorkingScheduleSerializer},
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider working schedule updated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Provider working schedule "
+                            "updated successfully."
+                        ),
+                        "data": {
+                            "employee_working_schedule_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "business_uuid": (
+                                "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                            ),
+                            "owner_uuid": (
+                                "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                            ),
+                            "employee": None,
+                            "day_of_week": "MONDAY",
+                            "slot_type": "FULL_DAY",
+                            "start_time": "10:00:00",
+                            "end_time": "19:00:00",
+                            "is_active": True,
+                            "created_at": "2026-09-04T09:00:00Z",
+                            "updated_at": "2026-09-04T10:00:00Z",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeWorkingScheduleUpdateAPIView(APIView):
 
@@ -1727,7 +2236,6 @@ class EmployeeWorkingScheduleUpdateAPIView(APIView):
                 employee_working_schedule_uuid
             ),
             business=business,
-            is_active=True,
         )
 
         # Provider cannot be changed during update
@@ -1774,11 +2282,28 @@ class EmployeeWorkingScheduleUpdateAPIView(APIView):
 # =================================================================================================================
 #                           DELETE / DEACTIVATE SCHEDULE
 # =================================================================================================================
-
-
 @extend_schema(
     tags=["Provider Working Schedule"],
     summary="Deactivate Provider Working Schedule",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Provider working schedule deactivated successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Provider working schedule "
+                            "deactivated successfully."
+                        ),
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
 )
 class EmployeeWorkingScheduleDeleteAPIView(APIView):
 
@@ -1805,24 +2330,16 @@ class EmployeeWorkingScheduleDeleteAPIView(APIView):
                 employee_working_schedule_uuid
             ),
             business=business,
-            is_active=True,
         )
 
-        schedule.is_active = False
-
-        schedule.save(
-            update_fields=[
-                "is_active",
-                "updated_at",
-            ]
-        )
+        schedule.delete()
 
         return Response(
             {
                 "success": True,
                 "message": (
                     "Provider working schedule "
-                    "deactivated successfully."
+                    "deleted successfully."
                 ),
             },
             status=status.HTTP_200_OK,
@@ -1832,6 +2349,65 @@ class EmployeeWorkingScheduleDeleteAPIView(APIView):
 # VIEW BUSINESS APPLICATION DOCUMENTS
 # ADMIN + BUSINESS OWNER
 # =========================================================
+@extend_schema(
+    tags=["Business Application"],
+    summary="View business application documents",
+    description=(
+        "Admins can view documents of any business application. "
+        "A business owner can view documents of their own application."
+    ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business application documents fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business application documents "
+                            "fetched successfully."
+                        ),
+                        "data": {
+                            "pan_document": {
+                                "url": "https://example.com/pan.pdf",
+                                "name": "pan.pdf",
+                                "type": "application/pdf",
+                            },
+                            "aadhaar_document": {
+                                "url": "https://example.com/aadhaar.pdf",
+                                "name": "aadhaar.pdf",
+                                "type": "application/pdf",
+                            },
+                            "internal_store_photo": {
+                                "url": "https://example.com/internal.jpg",
+                                "name": "internal.jpg",
+                                "type": "image/jpeg",
+                            },
+                            "external_store_photo": {
+                                "url": "https://example.com/external.jpg",
+                                "name": "external.jpg",
+                                "type": "image/jpeg",
+                            },
+                            "cancelled_gst_bill_book_photo": {
+                                "url": "https://example.com/gst-bill.jpg",
+                                "name": "gst-bill.jpg",
+                                "type": "image/jpeg",
+                            },
+                            "logo": {
+                                "url": "https://example.com/logo.png",
+                                "name": "logo.png",
+                                "type": "image/png",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
 class BusinessApplicationDocumentsAPIView(APIView):
     permission_classes = [
         IsAuthenticated
@@ -1919,6 +2495,879 @@ class BusinessApplicationDocumentsAPIView(APIView):
                     "fetched successfully."
                 ),
                 "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# BUSINESS APPLICATION - VIEW A SINGLE DOCUMENT (STREAMED)
+# =========================================================
+
+BUSINESS_APPLICATION_DOCUMENT_FIELDS = {
+    "pan": "pan_document",
+    "aadhaar": "aadhaar_document",
+    "internal_store_photo": "internal_store_photo",
+    "external_store_photo": "external_store_photo",
+    "gst_bill_book": "cancelled_gst_bill_book_photo",
+    "logo": "logo",
+}
+
+
+class BusinessApplicationDocumentViewAPIView(APIView):
+    """
+    Streams the actual file for ONE document belonging to a
+    business application, instead of returning a public URL.
+
+    Every request re-checks that the caller is either the
+    application's own owner or an Admin - there is no way to
+    view this file without a valid, permitted access token.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Application"],
+        summary="View a single business application document",
+        description=(
+            "Streams the requested document inline (PDF/image "
+            "preview) rather than returning a public link. "
+            "Admins can view any application's documents. "
+            "A business owner can only view their own."
+        ),
+    )
+    def get(
+        self,
+        request,
+        business_application_uuid,
+        document_key,
+    ):
+        field_name = BUSINESS_APPLICATION_DOCUMENT_FIELDS.get(
+            document_key
+        )
+
+        if field_name is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Unknown document type '{document_key}'. "
+                        f"Valid options: "
+                        f"{', '.join(BUSINESS_APPLICATION_DOCUMENT_FIELDS)}"
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        application = get_object_or_404(
+            BusinessApplication.objects.select_related(
+                "user",
+                "identity",
+            ),
+            business_application_uuid=business_application_uuid,
+        )
+
+        # -------------------------------------------------
+        # ACCESS CHECK - same rule as the metadata endpoint
+        # -------------------------------------------------
+
+        is_admin = request.user.role == UserRole.ADMIN
+        is_owner = application.user_id == request.user.id
+
+        if not is_admin and not is_owner:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You do not have permission to "
+                        "view this document."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            identity = application.identity
+        except BusinessIdentity.DoesNotExist:
+            raise Http404(
+                "No documents have been uploaded for "
+                "this business application."
+            )
+
+        file_field = getattr(identity, field_name)
+
+        return serve_document_file(file_field)
+
+
+# =========================================================
+# BUSINESS OWNER
+# SUBMIT BUSINESS TYPE UPGRADE REQUEST
+# =========================================================
+
+@extend_schema(
+    tags=["Business Upgrade Request"],
+    summary="Create Business Upgrade Request",
+    request=BusinessUpgradeRequestSubmitSerializer,
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade request created successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business upgrade request "
+                            "created successfully."
+                        ),
+                        "data": {
+                            "business_upgrade_request_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "business_uuid": (
+                                "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                            ),
+                            "owner_uuid": (
+                                "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                            ),
+                            "current_business_type": "INDIVIDUAL",
+                            "requested_business_type": "COMPANY",
+                            "keep_employees_and_schedules": True,
+                            "bank_details_changed": False,
+                            "status": "PENDING",
+                            "created_at": "2026-09-04T10:00:00Z",
+                            "reviewed_at": None,
+                            "rejection_reason": None,
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class BusinessUpgradeRequestCreateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+        JSONParser,
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="Request a business type change",
+        description=(
+            "Submitted by an approved business owner to request "
+            "changing their business_type (e.g. INDIVIDUAL to "
+            "COMPANY). Only fields missing from the business's "
+            "existing identity need to be submitted."
+        ),
+        request=BusinessUpgradeRequestSubmitSerializer,
+        responses={
+            201: BusinessUpgradeRequestFullSerializer,
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Validation error"
+            ),
+        },
+    )
+    def post(self, request):
+
+        business = get_object_or_404(
+            BusinessProfile,
+            owner=request.user,
+            is_active=True,
+        )
+
+        current_identity = get_current_business_identity(
+            business
+        )
+
+        serializer = BusinessUpgradeRequestSubmitSerializer(
+            data=request.data,
+            context={
+                "business": business,
+                "current_identity": current_identity,
+            },
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+
+            upgrade_request = BusinessUpgradeService.submit(
+                business=business,
+                validated_data=serializer.validated_data,
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request submitted "
+                    "successfully. It is waiting for admin "
+                    "review."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =========================================================
+# BUSINESS OWNER
+# LIST MY UPGRADE REQUESTS
+# =========================================================
+
+@extend_schema(
+    tags=["Business Upgrade Request"],
+    summary="List Business Upgrade Requests",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade requests fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "data": [
+                            {
+                                "business_upgrade_request_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "business_uuid": (
+                                    "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                                ),
+                                "owner_uuid": (
+                                    "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                                ),
+                                "current_business_type": "INDIVIDUAL",
+                                "requested_business_type": "COMPANY",
+                                "keep_employees_and_schedules": True,
+                                "bank_details_changed": False,
+                                "status": "PENDING",
+                                "created_at": "2026-09-04T10:00:00Z",
+                                "reviewed_at": None,
+                                "rejection_reason": None,
+                            }
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class BusinessUpgradeRequestListAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="List my business upgrade requests",
+        responses=BusinessUpgradeRequestFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        upgrade_requests = (
+            BusinessUpgradeRequest.objects
+            .filter(
+                business__owner=request.user,
+            )
+            .select_related(
+                "business",
+                "business__owner",
+                "reviewed_by",
+            )
+        )
+
+        serializer = BusinessUpgradeRequestFullSerializer(
+            upgrade_requests,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+# =========================================================
+# BUSINESS UPGRADE REQUEST - DOCUMENTS
+# =========================================================
+
+BUSINESS_UPGRADE_DOCUMENT_FIELDS = {
+    "pan": "pan_document",
+    "aadhaar": "aadhaar_document",
+    "internal_store_photo": "internal_store_photo",
+    "external_store_photo": "external_store_photo",
+    "gst_bill_book": "cancelled_gst_bill_book_photo",
+}
+
+
+def _get_upgrade_request_for_user(request, business_upgrade_request_uuid):
+    """
+    Shared lookup + permission check for both upgrade-request
+    document endpoints below. Returns the BusinessUpgradeRequest,
+    or raises Http404 / returns a 403 Response.
+    """
+    upgrade_request = get_object_or_404(
+        BusinessUpgradeRequest.objects.select_related(
+            "business",
+            "business__owner",
+        ),
+        business_upgrade_request_uuid=business_upgrade_request_uuid,
+    )
+
+    is_admin = request.user.role == UserRole.ADMIN
+    is_owner = upgrade_request.business.owner_id == request.user.id
+
+    if not is_admin and not is_owner:
+        return upgrade_request, Response(
+            {
+                "success": False,
+                "message": (
+                    "You do not have permission to "
+                    "view these documents."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return upgrade_request, None
+
+
+@extend_schema(
+    tags=["Business Upgrade Request"],
+    summary="View Business Upgrade Request Documents",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade request documents fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business upgrade request documents "
+                            "fetched successfully."
+                        ),
+                        "data": {
+                            "pan_document": {
+                                "url": "https://example.com/pan.pdf",
+                                "name": "pan.pdf",
+                                "type": "application/pdf",
+                            },
+                            "aadhaar_document": {
+                                "url": "https://example.com/aadhaar.pdf",
+                                "name": "aadhaar.pdf",
+                                "type": "application/pdf",
+                            },
+                            "internal_store_photo": {
+                                "url": "https://example.com/internal.jpg",
+                                "name": "internal.jpg",
+                                "type": "image/jpeg",
+                            },
+                            "external_store_photo": {
+                                "url": "https://example.com/external.jpg",
+                                "name": "external.jpg",
+                                "type": "image/jpeg",
+                            },
+                            "cancelled_gst_bill_book_photo": {
+                                "url": "https://example.com/gst-bill.jpg",
+                                "name": "gst-bill.jpg",
+                                "type": "image/jpeg",
+                            },
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class BusinessUpgradeRequestDocumentsAPIView(APIView):
+    """
+    Lists the documents submitted with an upgrade request, each
+    with a link to the protected streaming view below - not a
+    public /media/ URL.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="List documents for a business upgrade request",
+        responses=BusinessUpgradeRequestDocumentsSerializer,
+    )
+    def get(self, request, business_upgrade_request_uuid):
+
+        upgrade_request, error_response = (
+            _get_upgrade_request_for_user(
+                request, business_upgrade_request_uuid
+            )
+        )
+        if error_response:
+            return error_response
+
+        try:
+            identity = upgrade_request.identity
+        except BusinessUpgradeIdentity.DoesNotExist:
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "No new documents were submitted with "
+                        "this upgrade request."
+                    ),
+                    "data": {},
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = BusinessUpgradeRequestDocumentsSerializer(
+            identity,
+            context={"request": request},
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request documents "
+                    "fetched successfully."
+                ),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class BusinessUpgradeRequestDocumentViewAPIView(APIView):
+    """
+    Streams the actual file for ONE document belonging to a
+    business upgrade request. Same protection model as the
+    business application documents view: owner or Admin only,
+    re-checked on every request.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    @extend_schema(
+        tags=["Business Upgrade Request"],
+        summary="View a single business upgrade request document",
+        description=(
+            "Streams the requested document inline (PDF/image "
+            "preview). The business owner who submitted the "
+            "upgrade request, or an Admin, can view it."
+        ),
+    )
+    def get(
+        self,
+        request,
+        business_upgrade_request_uuid,
+        document_key,
+    ):
+        field_name = BUSINESS_UPGRADE_DOCUMENT_FIELDS.get(
+            document_key
+        )
+
+        if field_name is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Unknown document type '{document_key}'. "
+                        f"Valid options: "
+                        f"{', '.join(BUSINESS_UPGRADE_DOCUMENT_FIELDS)}"
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        upgrade_request, error_response = (
+            _get_upgrade_request_for_user(
+                request, business_upgrade_request_uuid
+            )
+        )
+        if error_response:
+            return error_response
+
+        try:
+            identity = upgrade_request.identity
+        except BusinessUpgradeIdentity.DoesNotExist:
+            raise Http404(
+                "No documents have been uploaded for "
+                "this upgrade request."
+            )
+
+        file_field = getattr(identity, field_name)
+
+        return serve_document_file(file_field)
+
+
+# =========================================================
+# ADMIN
+# LIST UPGRADE REQUESTS
+# =========================================================
+@extend_schema(
+    tags=["Business Administration"],
+    summary="List business upgrade requests",
+    description=(
+        "Optional query param `status` filters by "
+        "PENDING, APPROVED, or REJECTED."
+    ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade requests fetched successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "data": [
+                            {
+                                "business_upgrade_request_uuid": (
+                                    "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                ),
+                                "business_uuid": (
+                                    "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                                ),
+                                "business_name": "ABC Services",
+                                "owner_uuid": (
+                                    "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                                ),
+                                "current_business_type": "INDIVIDUAL",
+                                "requested_business_type": "COMPANY",
+                                "keep_employees_and_schedules": True,
+                                "bank_details_changed": False,
+                                "status": "PENDING",
+                                "created_at": "2026-09-04T10:00:00Z",
+                                "reviewed_at": None,
+                                "rejection_reason": None,
+                            }
+                        ],
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class AdminBusinessUpgradeRequestListAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="List business upgrade requests",
+        description=(
+            "Optional query param `status` filters by "
+            "PENDING, APPROVED, or REJECTED."
+        ),
+        responses=BusinessUpgradeRequestFullSerializer(
+            many=True
+        ),
+    )
+    def get(self, request):
+
+        upgrade_requests = (
+            BusinessUpgradeRequest.objects
+            .select_related(
+                "business",
+                "business__owner",
+                "reviewed_by",
+            )
+        )
+
+        status_filter = request.query_params.get("status")
+
+        if status_filter:
+            upgrade_requests = upgrade_requests.filter(
+                status=status_filter.upper()
+            )
+
+        serializer = BusinessUpgradeRequestFullSerializer(
+            upgrade_requests,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+# =========================================================
+# ADMIN
+# APPROVE UPGRADE REQUEST
+# =========================================================
+@extend_schema(
+    tags=["Business Administration"],
+    summary="Approve business upgrade request",
+    description=(
+        "Approving changes the business's business_type "
+        "and, depending on the request, may update bank "
+        "details (resetting verification) and deactivate "
+        "existing employees/schedules."
+    ),
+    request=None,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade request approved successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business upgrade request approved. "
+                            "Business type is now COMPANY."
+                        ),
+                        "data": {
+                            "business_upgrade_request_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "business_uuid": (
+                                "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                            ),
+                            "business_name": "ABC Services",
+                            "owner_uuid": (
+                                "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                            ),
+                            "current_business_type": "INDIVIDUAL",
+                            "requested_business_type": "COMPANY",
+                            "keep_employees_and_schedules": True,
+                            "bank_details_changed": False,
+                            "status": "APPROVED",
+                            "created_at": "2026-09-04T10:00:00Z",
+                            "reviewed_at": "2026-09-04T11:00:00Z",
+                            "rejection_reason": None,
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class AdminApproveBusinessUpgradeRequestAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Approve business upgrade request",
+        description=(
+            "Approving changes the business's business_type "
+            "and, depending on the request, may update bank "
+            "details (resetting verification) and deactivate "
+            "existing employees/schedules."
+        ),
+        request=None,
+        responses=BusinessUpgradeRequestFullSerializer,
+    )
+    def post(self, request, business_upgrade_request_uuid):
+
+        upgrade_request = get_object_or_404(
+            BusinessUpgradeRequest,
+            business_upgrade_request_uuid=(
+                business_upgrade_request_uuid
+            ),
+        )
+
+        try:
+
+            upgrade_request, business = (
+                BusinessUpgradeService.approve(
+                    upgrade_request=upgrade_request,
+                    admin_user=request.user,
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request approved. "
+                    "Business type is now "
+                    f"{business.business_type}."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ADMIN
+# REJECT UPGRADE REQUEST
+# =========================================================
+@extend_schema(
+    tags=["Business Administration"],
+    summary="Reject business upgrade request",
+    description="Admin must provide a rejection reason.",
+    request=RejectBusinessApplicationSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Business upgrade request rejected successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Business upgrade request rejected."
+                        ),
+                        "data": {
+                            "business_upgrade_request_uuid": (
+                                "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                            ),
+                            "business_uuid": (
+                                "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                            ),
+                            "business_name": "ABC Services",
+                            "owner_uuid": (
+                                "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                            ),
+                            "current_business_type": "INDIVIDUAL",
+                            "requested_business_type": "COMPANY",
+                            "keep_employees_and_schedules": True,
+                            "bank_details_changed": False,
+                            "status": "REJECTED",
+                            "created_at": "2026-09-04T10:00:00Z",
+                            "reviewed_at": "2026-09-04T11:00:00Z",
+                            "rejection_reason": "Invalid business documents.",
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class AdminRejectBusinessUpgradeRequestAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Reject business upgrade request",
+        description=(
+            "Admin must provide a rejection reason."
+        ),
+        request=RejectBusinessApplicationSerializer,
+        responses=BusinessUpgradeRequestFullSerializer,
+    )
+    def post(self, request, business_upgrade_request_uuid):
+
+        upgrade_request = get_object_or_404(
+            BusinessUpgradeRequest,
+            business_upgrade_request_uuid=(
+                business_upgrade_request_uuid
+            ),
+        )
+
+        serializer = RejectBusinessApplicationSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+
+            upgrade_request = (
+                BusinessUpgradeService.reject(
+                    upgrade_request=upgrade_request,
+                    admin_user=request.user,
+                    reason=serializer.validated_data[
+                        "reason"
+                    ],
+                )
+            )
+
+        except ValueError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business upgrade request rejected."
+                ),
+                "data": (
+                    BusinessUpgradeRequestFullSerializer(
+                        upgrade_request
+                    ).data
+                ),
             },
             status=status.HTTP_200_OK,
         )

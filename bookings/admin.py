@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Booking
+from .models import Booking, BookingEmployee
 
 
 @admin.register(Booking)
@@ -33,3 +33,8 @@ class BookingAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+@admin.register(BookingEmployee)
+class BookingEmployeeAdmin(admin.ModelAdmin):
+    list_display = ("id", "booking", "employee")
+    search_fields = ("booking__uuid", "employee__name")

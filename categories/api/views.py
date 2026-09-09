@@ -1,6 +1,12 @@
 from django.shortcuts import get_object_or_404
+from django.db import IntegrityError
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -41,7 +47,34 @@ class CategoryListCreateAPIView(APIView):
     @extend_schema(
         tags=["Categories"],
         summary="List categories",
-        responses=CategorySerializer(many=True),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Categories fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "data": [
+                                {
+                                    "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                    "name": "Home Services",
+                                    "slug": "home-services",
+                                    "description": "Home repair services",
+                                    "icon": "https://example.com/icon.png",
+                                    "is_active": True,
+                                    "subcategories": [],
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "updated_at": "2026-09-04T10:30:00Z",
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request):
 
@@ -71,7 +104,31 @@ class CategoryListCreateAPIView(APIView):
         summary="Create category",
         request=CategorySerializer,
         responses={
-            201: CategorySerializer,
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Category created successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": "Category created successfully.",
+                            "data": {
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "name": "Home Services",
+                                "slug": "home-services",
+                                "description": "Home repair services",
+                                "icon": "https://example.com/icon.png",
+                                "is_active": True,
+                                "subcategories": [],
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
         },
     )
     def post(self, request):
@@ -119,7 +176,32 @@ class CategoryDetailAPIView(APIView):
     @extend_schema(
         tags=["Categories"],
         summary="Get category details",
-        responses=CategorySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Category details fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "data": {
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "name": "Home Services",
+                                "slug": "home-services",
+                                "description": "Home repair services",
+                                "icon": "https://example.com/icon.png",
+                                "is_active": True,
+                                "subcategories": [],
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request, cat_uuid):
 
@@ -154,7 +236,33 @@ class CategoryDetailAPIView(APIView):
         tags=["Categories"],
         summary="Update category",
         request=CategorySerializer,
-        responses=CategorySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Category updated successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": "Category updated successfully.",
+                            "data": {
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "name": "Home Maintenance",
+                                "slug": "home-maintenance",
+                                "description": "Home repair services",
+                                "icon": "https://example.com/icon.png",
+                                "is_active": True,
+                                "subcategories": [],
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def patch(self, request, cat_uuid):
 
@@ -213,7 +321,36 @@ class SubCategoryListCreateAPIView(APIView):
     @extend_schema(
         tags=["SubCategories"],
         summary="List subcategories",
-        responses=SubCategorySerializer(many=True),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Subcategories fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "data": [
+                                {
+                                    "subCat_uuid": "b2c3d4e5-6789-4abc-9def-0123456789ab",
+                                    "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                    "category_name": "Home Services",
+                                    "name": "Plumbing",
+                                    "slug": "plumbing",
+                                    "description": "Plumbing services",
+                                    "icon": "https://example.com/plumbing-icon.png",
+                                    "image": "https://example.com/plumbing.jpg",
+                                    "is_active": True,
+                                    "created_at": "2026-09-04T10:30:00Z",
+                                    "updated_at": "2026-09-04T10:30:00Z",
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def get(self, request, cat_uuid):
 
@@ -239,6 +376,7 @@ class SubCategoryListCreateAPIView(APIView):
             subcategories = subcategories.filter(
                 is_active=True
             )
+
         serializer = SubCategorySerializer(
             subcategories,
             many=True,
@@ -254,7 +392,33 @@ class SubCategoryListCreateAPIView(APIView):
         summary="Create subcategory",
         request=SubCategorySerializer,
         responses={
-            201: SubCategorySerializer,
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Subcategory created successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": "Subcategory created successfully.",
+                            "data": {
+                                "subCat_uuid": "b2c3d4e5-6789-4abc-9def-0123456789ab",
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "category_name": "Home Services",
+                                "name": "Plumbing",
+                                "slug": "plumbing",
+                                "description": "Plumbing services",
+                                "icon": "https://example.com/plumbing-icon.png",
+                                "image": "https://example.com/plumbing.jpg",
+                                "is_active": True,
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
         },
     )
     def post(self, request, cat_uuid):
@@ -273,9 +437,21 @@ class SubCategoryListCreateAPIView(APIView):
             raise_exception=True
         )
 
-        subcategory = serializer.save(
-            category=category
-        )
+        try:
+            subcategory = serializer.save(
+                category=category
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A subcategory with this name or slug "
+                        "already exists in this category."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             {
@@ -310,59 +486,37 @@ class SubCategoryDetailAPIView(APIView):
 
     @extend_schema(
         tags=["SubCategories"],
-        summary="Get subcategory",
-        responses=SubCategorySerializer,
-    )
-    def get(self, request, subCat_uuid):
-
-        subcategory = get_object_or_404(
-            SubCategory.objects.select_related(
-                "category"
-            ),
-            subCat_uuid=subCat_uuid,
-        )
-
-        # Non-admins can only view active subcategories
-        if (
-            getattr(request.user, "role", None) != UserRole.ADMIN
-            and not subcategory.is_active
-        ):
-            return Response(
-                {
-                    "success": False,
-                    "message": "Subcategory not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Non-admins also cannot view a subcategory
-        # belonging to an inactive category
-        if (
-            getattr(request.user, "role", None) != UserRole.ADMIN
-            and not subcategory.category.is_active
-        ):
-            return Response(
-                {
-                    "success": False,
-                    "message": "Subcategory not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        serializer = SubCategorySerializer(
-            subcategory
-        )
-
-        return Response({
-            "success": True,
-            "data": serializer.data,
-        })
-
-    @extend_schema(
-        tags=["SubCategories"],
         summary="Update subcategory",
         request=SubCategorySerializer,
-        responses=SubCategorySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Subcategory updated successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "message": "Subcategory updated successfully.",
+                            "data": {
+                                "subCat_uuid": "b2c3d4e5-6789-4abc-9def-0123456789ab",
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "category_name": "Home Services",
+                                "name": "Electrical Services",
+                                "slug": "electrical-services",
+                                "description": "Electrical repair services",
+                                "icon": "https://example.com/electrical-icon.png",
+                                "image": "https://example.com/electrical.jpg",
+                                "is_active": True,
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     )
     def patch(self, request, subCat_uuid):
 
@@ -381,7 +535,19 @@ class SubCategoryDetailAPIView(APIView):
             raise_exception=True
         )
 
-        subcategory = serializer.save()
+        try:
+            subcategory = serializer.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A subcategory with this name or slug "
+                        "already exists in this category."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response({
             "success": True,
@@ -391,4 +557,78 @@ class SubCategoryDetailAPIView(APIView):
             ).data,
         })
 
-        
+
+class SubCategoryBySlugAPIView(APIView):
+
+    @extend_schema(
+        tags=["SubCategories"],
+        summary="Get subcategory by slug",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Subcategory fetched successfully.",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "success": True,
+                            "data": {
+                                "subCat_uuid": "b2c3d4e5-6789-4abc-9def-0123456789ab",
+                                "cat_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab",
+                                "category_name": "Home Services",
+                                "name": "Plumbing",
+                                "slug": "plumbing",
+                                "description": "Plumbing services",
+                                "icon": "https://example.com/plumbing-icon.png",
+                                "image": "https://example.com/plumbing.jpg",
+                                "is_active": True,
+                                "created_at": "2026-09-04T10:30:00Z",
+                                "updated_at": "2026-09-04T10:30:00Z",
+                            },
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
+    )
+    def get(self, request, slug):
+
+        subcategory = get_object_or_404(
+            SubCategory.objects.select_related("category"),
+            slug=slug,
+        )
+
+        # Non-admins can only view active subcategories
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Non-admins cannot view subcategory
+        # belonging to an inactive category
+        if (
+            getattr(request.user, "role", None) != UserRole.ADMIN
+            and not subcategory.category.is_active
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subcategory not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = SubCategorySerializer(subcategory)
+
+        return Response({
+            "success": True,
+            "data": serializer.data,
+        })
