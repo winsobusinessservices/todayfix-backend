@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/instant-bookings/", include("instant_bookings.api.urls")),
     path("api/chat/", include("chat_service.urls")),
     path("api/calling/", include("calling_service.urls")),
+    path("api/notifications/", include("notifications.urls")),
 
     
 

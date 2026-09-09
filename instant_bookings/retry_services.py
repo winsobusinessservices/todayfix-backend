@@ -213,6 +213,17 @@ class InstantBookingRetryService:
                 candidates=quote["candidates"],
             )
         )
+        
+        from notifications.services import NotificationService
+        from notifications.choices import NotificationType
+        for offer in offers:
+            NotificationService.create(
+                recipient=offer.business.owner,
+                notification_type=NotificationType.INSTANT_BOOKING_CREATED,
+                title="New Instant Booking Request",
+                message=f"New instant booking request for {booking.requested_service_name}.",
+                data={"booking_id": str(booking.instant_booking_uuid)}
+            )
 
         # Keep the expiry within the absolute fifteen-minute
         # search deadline.

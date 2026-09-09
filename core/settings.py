@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "instant_bookings",
     "chat_service",
     "calling_service",
+    "notifications",
 ]
 
 

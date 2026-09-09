@@ -3,6 +3,8 @@ from .models import CallSession
 from .choices import CallStatus
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from notifications.services import NotificationService
+from notifications.choices import NotificationType
 
 class CallingService:
     @staticmethod
@@ -51,6 +53,14 @@ class CallingService:
             "caller_id": str(caller.user_uuid),
         })
         
+        NotificationService.create(
+            recipient=receiver,
+            notification_type=NotificationType.INCOMING_CALL,
+            title="Incoming Call",
+            message=f"You have an incoming call from {caller.first_name}.",
+            data={"call_id": str(call.call_session_uuid), "conversation_id": str(conversation.conversation_uuid)}
+        )
+        
         return call
 
     @staticmethod
@@ -83,6 +93,14 @@ class CallingService:
         CallingService._notify_chat(call.conversation, "call_rejected", {
             "call_id": str(call.call_session_uuid)
         })
+        
+        NotificationService.create(
+            recipient=call.caller,
+            notification_type=NotificationType.CALL_MISSED,
+            title="Call Rejected",
+            message=f"Your call was rejected by {user.first_name}.",
+            data={"call_id": str(call.call_session_uuid)}
+        )
         return call
 
     @staticmethod
@@ -103,6 +121,16 @@ class CallingService:
             "call_id": str(call.call_session_uuid),
             "duration": call.duration_seconds
         })
+        
+        # Notify the other party that call ended
+        other_party = call.receiver if user == call.caller else call.caller
+        NotificationService.create(
+            recipient=other_party,
+            notification_type=NotificationType.CALL_ENDED,
+            title="Call Ended",
+            message=f"The call ended. Duration: {call.duration_seconds}s.",
+            data={"call_id": str(call.call_session_uuid), "duration": call.duration_seconds}
+        )
         return call
 
     @staticmethod
@@ -119,4 +147,12 @@ class CallingService:
         CallingService._notify_chat(call.conversation, "call_cancelled", {
             "call_id": str(call.call_session_uuid)
         })
+        
+        NotificationService.create(
+            recipient=call.receiver,
+            notification_type=NotificationType.CALL_MISSED,
+            title="Missed Call",
+            message=f"You missed a call from {user.first_name}.",
+            data={"call_id": str(call.call_session_uuid)}
+        )
         return call
