@@ -10,6 +10,13 @@ from .choices import BookingStatus
 from .models import Booking, BookingEmployee
 
 
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+
+from accounts.models import EmailTemplate
+
+
 class BookingService:
     """
     Business logic layer for Bookings.
@@ -699,6 +706,66 @@ class BookingService:
 
         return availability
 
+    @staticmethod
+    def _send_booking_email(
+        booking,
+        template_name,
+        placeholders,
+        recipient=None,
+    ):
+        """
+        Fetches an EmailTemplate by name, fills in the placeholders,
+        and emails the given recipient (defaults to the customer,
+        booking.user). Mirrors the pattern used for signup/password
+        -reset emails in accounts/api/views.py.
+        """
+
+        recipient = recipient or booking.user
+
+        if not recipient.email:
+            return
+
+        try:
+            template = EmailTemplate.objects.get(name=template_name)
+        except EmailTemplate.DoesNotExist:
+            return
+
+        message = template.message
+
+        for key, value in placeholders.items():
+            message = message.replace(
+                "{{ " + key + " }}",
+                str(value),
+            )
+
+        html_message = render_to_string(
+            "emails/base_email.html",
+            {
+                "subject": template.subject,
+                "logo_url": settings.EMAIL_LOGO_URL,
+                "first_name": recipient.first_name,
+                "message": message,
+                "otp": "",
+                "additional_message": "",
+            },
+        )
+
+        email_message = EmailMultiAlternatives(
+            subject=template.subject,
+            body=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient.email],
+        )
+
+        email_message.attach_alternative(
+            html_message,
+            "text/html",
+        )
+
+        email_message.send(
+            fail_silently=True,
+        )
+
     # =========================================================
     # STATUS TRANSITIONS
     # =========================================================
@@ -746,6 +813,36 @@ class BookingService:
         )
         return booking
 
+        common_placeholders = {
+            "business_name": booking.business.name,
+            "service_name": booking.service.name,
+            "scheduled_date": booking.scheduled_date.strftime("%d %b %Y"),
+        }
+
+        # Confirmation to the customer
+        BookingService._send_booking_email(
+            booking,
+            "BOOKING_CANCELLED_CUSTOMER",
+            common_placeholders,
+            recipient=booking.user,
+        )
+
+        # Notice to the business owner
+        BookingService._send_booking_email(
+            booking,
+            "BOOKING_CANCELLED_BUSINESS",
+            {
+                **common_placeholders,
+                "customer_name": (
+                    f"{booking.user.first_name} "
+                    f"{booking.user.last_name}"
+                ).strip(),
+            },
+            recipient=booking.business.owner,
+        )
+
+        return booking
+
     @staticmethod
     def accept_booking(booking):
         """Business accepts a booking."""
@@ -769,6 +866,20 @@ class BookingService:
         )
         return booking
 
+        BookingService._send_booking_email(
+            booking,
+            "BOOKING_CONFIRMED",
+            {
+                "business_name": booking.business.name,
+                "service_name": booking.service.name,
+                "scheduled_date": booking.scheduled_date.strftime("%d %b %Y"),
+                "slot_type": booking.get_slot_type_display(),
+                "price": booking.price,
+            },
+        )
+
+        return booking
+
     @staticmethod
     def reject_booking(booking):
         """Business rejects a booking."""
@@ -790,6 +901,18 @@ class BookingService:
             message="Your booking was rejected by the business.",
             data={"booking_id": str(booking.booking_uuid)}
         )
+        return booking
+
+        BookingService._send_booking_email(
+            booking,
+            "BOOKING_REJECTED",
+            {
+                "business_name": booking.business.name,
+                "service_name": booking.service.name,
+                "scheduled_date": booking.scheduled_date.strftime("%d %b %Y"),
+            },
+        )
+
         return booking
 
     @staticmethod
@@ -827,6 +950,7 @@ class BookingService:
             BookingStatus.COMPLETED,
             "Only in-progress bookings can be completed.",
         )
+<<<<<<< Updated upstream
         from notifications.services import NotificationService
         from notifications.choices import NotificationType
         NotificationService.create(
@@ -837,3 +961,18 @@ class BookingService:
             data={"booking_id": str(booking.booking_uuid)}
         )
         return booking
+=======
+
+        BookingService._send_booking_email(
+            booking,
+            "BOOKING_COMPLETED",
+            {
+                "business_name": booking.business.name,
+                "service_name": booking.service.name,
+                "scheduled_date": booking.scheduled_date.strftime("%d %b %Y"),
+            },
+            recipient=booking.user,
+        )
+
+        return booking
+>>>>>>> Stashed changes

@@ -34,7 +34,7 @@ from instant_bookings.offer_services import InstantBookingOfferService
 from instant_bookings.services import InstantBookingQuoteService
 from services.models import Service
 
-
+from instant_bookings.email_service import send_instant_booking_email
 # Customer sees a tip prompt after 5 and 10 minutes.
 TIP_PROMPT_INTERVAL_MINUTES = 5
 
@@ -79,6 +79,14 @@ def expire_booking_if_required(booking):
 
         booking.status = InstantBookingStatus.NO_PROVIDER
         booking.save(update_fields=["status", "updated_at"])
+
+        send_instant_booking_email(
+            booking,
+            "INSTANT_BOOKING_NO_PROVIDER",
+            {
+                "service_name": booking.requested_service_name,
+            },
+        )
 
     return booking
 
@@ -688,6 +696,20 @@ class BusinessInstantBookingOfferAcceptAPIView(APIView):
             data={"booking_id": str(booking.instant_booking_uuid)}
         )
 
+        send_instant_booking_email(
+            booking,
+            "INSTANT_BOOKING_ASSIGNED",
+            {
+                "business_name": booking.assigned_business.name,
+                "service_name": (
+                    booking.selected_service.name
+                    if booking.selected_service
+                    else booking.requested_service_name
+                ),
+                "total_payable_price": booking.total_payable_price,
+            },
+        )
+
         return Response(
             {
                 "success": True,
@@ -696,7 +718,6 @@ class BusinessInstantBookingOfferAcceptAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 @extend_schema(tags=["Instant Bookings"],
     responses={

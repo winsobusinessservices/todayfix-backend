@@ -13,9 +13,16 @@ class ServiceAdmin(admin.ModelAdmin):
         "category",
         "price",
         "duration",
+        "rank",
         "is_active",
         "created_at",
     )
+
+    list_editable = (
+        "rank",
+    )
+
+    ordering = ("-rank", "-created_at")
 
     list_filter = (
         "is_active",

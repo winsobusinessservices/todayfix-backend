@@ -16,7 +16,7 @@ from instant_bookings.offer_services import (
 from instant_bookings.services import (
     InstantBookingQuoteService,
 )
-
+from instant_bookings.email_service import send_instant_booking_email
 
 class InstantBookingRetryService:
     """
@@ -270,4 +270,12 @@ class InstantBookingRetryService:
                 "expires_at",
                 "updated_at",
             ]
+        )
+
+        send_instant_booking_email(
+            booking,
+            "INSTANT_BOOKING_NO_PROVIDER",
+            {
+                "service_name": booking.requested_service_name,
+            },
         )

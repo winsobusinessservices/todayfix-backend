@@ -3,18 +3,110 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from django.db import IntegrityError
 from accounts.choices import UserRole
 from accounts.models import (
     CustomUser,
+    EmailTemplate,
     PasswordResetToken,
     PendingRegistration,
     SignupOTPVerification,
 )
 # Import from new location for backward compatibility
 from accounts.services.otp_service import SignupOTPService  # noqa: F401
+
+
+def send_welcome_email(user):
+    """
+    Sends the WELCOME_EMAIL template to a newly registered user.
+    Skipped silently if the user signed up with phone only and
+    has no email on file.
+    """
+
+    if not user.email:
+        return
+
+    try:
+        template = EmailTemplate.objects.get(name="WELCOME_EMAIL")
+    except EmailTemplate.DoesNotExist:
+        return
+
+    html_message = render_to_string(
+        "emails/base_email.html",
+        {
+            "subject": template.subject,
+            "logo_url": settings.EMAIL_LOGO_URL,
+            "first_name": user.first_name,
+            "message": template.message,
+            "otp": "",
+            "additional_message": "",
+        },
+    )
+
+    email_message = EmailMultiAlternatives(
+        subject=template.subject,
+        body=template.message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+
+    email_message.attach_alternative(
+        html_message,
+        "text/html",
+    )
+
+    email_message.send(
+        fail_silently=True,
+    )
+
+def send_password_changed_email(user):
+    """
+    Sends the PASSWORD_CHANGED confirmation email whenever a
+    password is set via AuthService.reset_password(), whether
+    that's a forgot-password reset or a logged-in password change.
+    Skipped silently if the user has no email on file.
+    """
+
+    if not user.email:
+        return
+
+    try:
+        template = EmailTemplate.objects.get(name="PASSWORD_CHANGED")
+    except EmailTemplate.DoesNotExist:
+        return
+
+    html_message = render_to_string(
+        "emails/base_email.html",
+        {
+            "subject": template.subject,
+            "logo_url": settings.EMAIL_LOGO_URL,
+            "first_name": user.first_name,
+            "message": template.message,
+            "otp": "",
+            "additional_message": "",
+        },
+    )
+
+    email_message = EmailMultiAlternatives(
+        subject=template.subject,
+        body=template.message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+
+    email_message.attach_alternative(
+        html_message,
+        "text/html",
+    )
+
+    email_message.send(
+        fail_silently=True,
+    )
+    
 class AuthService:
     # =========================================================
     # USER REGISTRATION
@@ -287,10 +379,10 @@ class AuthService:
             })
 
         pending_registration.delete()
+
+        send_welcome_email(user)
+
         return user
-    # =========================================================
-    # PHONE OTP REGISTRATION
-    # =========================================================
     # =========================================================
     # PHONE OTP REGISTRATION
     # =========================================================
@@ -418,6 +510,9 @@ class AuthService:
         user.save()
         # Registration completed.
         pending_registration.delete()
+
+        send_welcome_email(user)
+
         return user
     # =========================================================
     # RESET PASSWORD
@@ -436,6 +531,9 @@ class AuthService:
                 "updated_at",
             ]
         )
+
+        send_password_changed_email(user)
+
         return user
     # =========================================================
     # VERIFY CURRENT PASSWORD

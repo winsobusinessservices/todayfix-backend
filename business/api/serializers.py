@@ -699,7 +699,14 @@ class RejectBusinessApplicationSerializer(
 
         return value
 
-
+class BusinessProfileRankUpdateSerializer(
+    serializers.Serializer
+):
+    rank = serializers.IntegerField(
+        required=True,
+        min_value=1,
+    )
+    
 class BusinessProfileSerializer(
     serializers.ModelSerializer
 ):
