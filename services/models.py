@@ -176,6 +176,21 @@ class Service(TimeStampedModel):
         db_index=True,
     )
 
+    rank = models.PositiveIntegerField(
+        default=1,
+        db_index=True,
+        help_text=(
+            "Priority rank used to order this service in search "
+            "results and browsing. Higher rank is shown first, "
+            "with the business's rank used as a tiebreaker. "
+            "Currently set manually by admin; a future automated "
+            "system may raise it based on search appearances, "
+            "bookings, and clicks — this field is intentionally "
+            "left unconstrained (no uniqueness, no max) so that "
+            "future increment logic won't error."
+        ),
+    )
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [

@@ -709,6 +709,20 @@ class BusinessProfile(TimeStampedModel):
         default=True,
     )
 
+    rank = models.PositiveIntegerField(
+        default=1,
+        db_index=True,
+        help_text=(
+            "Priority rank used to order this business's services "
+            "in search results and browsing. Higher rank is shown "
+            "first. Currently set manually by admin; a future "
+            "automated system may raise it based on search "
+            "appearances, bookings, and clicks — this field is "
+            "intentionally left unconstrained (no uniqueness, no "
+            "max) so that future increment logic won't error."
+        ),
+    )
+
     subcategories = models.ManyToManyField(
         SubCategory,
         related_name="business_profiles",

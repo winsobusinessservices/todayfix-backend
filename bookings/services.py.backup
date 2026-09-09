@@ -950,7 +950,7 @@ class BookingService:
             BookingStatus.COMPLETED,
             "Only in-progress bookings can be completed.",
         )
-
+<<<<<<< Updated upstream
         from notifications.services import NotificationService
         from notifications.choices import NotificationType
         NotificationService.create(
@@ -961,7 +961,7 @@ class BookingService:
             data={"booking_id": str(booking.booking_uuid)}
         )
         return booking
-
+=======
 
         BookingService._send_booking_email(
             booking,
@@ -975,4 +975,4 @@ class BookingService:
         )
 
         return booking
-
+>>>>>>> Stashed changes

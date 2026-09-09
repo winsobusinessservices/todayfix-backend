@@ -41,6 +41,7 @@ from ..services import (
     BusinessApplicationService,
     BusinessUpgradeService,
     get_current_business_identity,
+    send_business_email_raw
 )
 from ..document_utils import serve_document_file
 
@@ -58,6 +59,7 @@ from .serializers import (
     BusinessUpgradeRequestSubmitSerializer,
     BusinessUpgradeRequestFullSerializer,
     BusinessUpgradeRequestDocumentsSerializer,
+    BusinessProfileRankUpdateSerializer,
 )
 
 from rest_framework.generics import (
@@ -1098,6 +1100,73 @@ class AdminRejectBusinessApplicationAPIView(
             status=status.HTTP_200_OK,
         )
 
+# =========================================================
+# ADMIN
+# UPDATE BUSINESS PROFILE RANK
+# =========================================================
+
+class AdminBusinessProfileRankUpdateAPIView(
+    APIView
+):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Update business profile rank",
+        description=(
+            "Set the priority rank for a business profile. "
+            "Businesses with a higher rank are shown first in "
+            "service search results and listings. Currently set "
+            "manually by admin; a future automated system may "
+            "adjust this based on search appearances, bookings, "
+            "and clicks."
+        ),
+        request=BusinessProfileRankUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Business profile rank updated successfully.",
+                examples=[OpenApiExample("Success", value={"success": True, "message": "Business profile rank updated successfully.", "data": {"business_profile_uuid": "b1c2d3e4-5678-4abc-9def-0123456789ab", "rank": 2}}, response_only=True)],
+            ),
+        },
+    )
+    def patch(
+        self,
+        request,
+        business_profile_uuid,
+    ):
+
+        profile = get_object_or_404(
+            BusinessProfile,
+            business_profile_uuid=business_profile_uuid,
+        )
+
+        serializer = BusinessProfileRankUpdateSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        profile.rank = serializer.validated_data["rank"]
+        profile.save(update_fields=["rank"])
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business profile rank updated successfully."
+                ),
+                "data": {
+                    "business_profile_uuid": str(
+                        profile.business_profile_uuid
+                    ),
+                    "rank": profile.rank,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 # =========================================================
 # BUSINESS PROFILE
@@ -1285,6 +1354,18 @@ class EmployeeCreateAPIView(CreateAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+
+        send_business_email_raw(
+            employee.email,
+            employee.name,
+            "EMPLOYEE_ADDED",
+            {
+                "business_name": business.name,
+                "employee_name": employee.name,
+                "employee_phone": employee.phone,
+                "employee_email": employee.email,
+            },
+        )
 
         return Response(
             {
@@ -1517,6 +1598,15 @@ class EmployeeDeleteAPIView(APIView):
 
         employee.is_active = False
         employee.save(update_fields=["is_active", "updated_at"])
+
+        send_business_email_raw(
+            employee.email,
+            employee.name,
+            "EMPLOYEE_REMOVED",
+            {
+                "business_name": business.name,
+            },
+        )
 
         return Response(
             {

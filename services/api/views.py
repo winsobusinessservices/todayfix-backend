@@ -45,6 +45,7 @@ from .serializers import (
     ServiceTypeSerializer,
     UnitSerializer,
     MyServiceReadSerializer,
+    ServiceRankUpdateSerializer,
 )
 
 
@@ -96,6 +97,11 @@ class ServiceListAPIView(ListAPIView):
                 "business",
                 "category",
                 "subcategory",
+            )
+            .order_by(
+                "-rank",
+                "-business__rank",
+                "-created_at",
             )
         )
 
@@ -407,7 +413,66 @@ class ServiceDeleteAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+# =============================================================
+# UPDATE SERVICE RANK (ADMIN)
+# =============================================================
 
+@extend_schema(
+    tags=["Services"],
+    summary="Update Service Rank",
+    description=(
+        "Set the priority rank for a service. Services with a "
+        "higher rank are shown first in search results and "
+        "listings, with the business's rank used as a tiebreaker. "
+        "Currently set manually by admin; a future automated "
+        "system may adjust this based on search appearances, "
+        "bookings, and clicks."
+    ),
+    request=ServiceRankUpdateSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Service rank updated successfully.",
+            examples=[OpenApiExample("Success", value={"success": True, "message": "Service rank updated successfully.", "data": {"service_uuid": "a1b2c3d4-5678-4abc-9def-0123456789ab", "rank": 2}}, response_only=True)],
+        ),
+    },
+)
+class ServiceRankUpdateAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole,
+    ]
+
+    def patch(self, request, service_uuid):
+
+        service = get_object_or_404(
+            Service,
+            service_uuid=service_uuid,
+        )
+
+        serializer = ServiceRankUpdateSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        service.rank = serializer.validated_data["rank"]
+        service.save(update_fields=["rank"])
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Service rank updated successfully."
+                ),
+                "data": {
+                    "service_uuid": str(
+                        service.service_uuid
+                    ),
+                    "rank": service.rank,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 # =============================================================
 # SEARCH / FILTER SERVICES (public)
@@ -516,6 +581,11 @@ class ServiceSearchAPIView(ListAPIView):
                 "business",
                 "category",
                 "subcategory",
+            )
+            .order_by(
+                "-rank",
+                "-business__rank",
+                "-created_at",
             )
         )
 
@@ -1355,7 +1425,10 @@ class SubCategoryServiceListAPIView(ListAPIView):
                 "business",
                 "category",
                 "subcategory",
-               
             )
-            .order_by("-created_at")
+            .order_by(
+                "-rank",
+                "-business__rank",
+                "-created_at",
+            )
         )

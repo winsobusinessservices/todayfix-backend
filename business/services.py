@@ -3,9 +3,23 @@ from django.utils import timezone
 
 from accounts.choices import UserRole
 
-from .choices import BusinessApplicationStatus
-from .models import BusinessApplication, BusinessIdentity, BusinessProfile
+from .choices import BankVerificationStatus, BusinessApplicationStatus
+from .models import (
+    BusinessApplication,
+    BusinessIdentity,
+    BusinessProfile,
+    BusinessUpgradeBankAccount,
+    BusinessUpgradeIdentity,
+    BusinessUpgradeRequest,
+    Employee,
+    EmployeeWorkingSchedule,
+)
 
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+
+from accounts.models import EmailTemplate
 
 def get_current_business_identity(business):
     """
@@ -34,8 +48,72 @@ def get_current_business_identity(business):
     except BusinessIdentity.DoesNotExist:
         return None
 
+def send_business_email_raw(email, first_name, template_name, placeholders):
+    """
+    Fetches an EmailTemplate by name, fills in the placeholders,
+    and emails the given raw email/first_name. Used when the
+    recipient isn't a CustomUser (e.g. an Employee record, which
+    has no login account of its own).
+    """
+
+    if not email:
+        return
+
+    try:
+        template = EmailTemplate.objects.get(name=template_name)
+    except EmailTemplate.DoesNotExist:
+        return
+
+    message = template.message
+
+    for key, value in placeholders.items():
+        message = message.replace(
+            "{{ " + key + " }}",
+            str(value),
+        )
+
+    html_message = render_to_string(
+        "emails/base_email.html",
+        {
+            "subject": template.subject,
+            "logo_url": settings.EMAIL_LOGO_URL,
+            "first_name": first_name,
+            "message": message,
+            "otp": "",
+            "additional_message": "",
+        },
+    )
+
+    email_message = EmailMultiAlternatives(
+        subject=template.subject,
+        body=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email],
+    )
+
+    email_message.attach_alternative(
+        html_message,
+        "text/html",
+    )
+
+    email_message.send(
+        fail_silently=True,
+    )
 
 
+def send_business_email(recipient, template_name, placeholders):
+    """
+    Fetches an EmailTemplate by name, fills in the placeholders,
+    and emails the given CustomUser recipient. Same pattern used
+    across bookings/services.py and instant_bookings/email_service.py.
+    """
+
+    send_business_email_raw(
+        recipient.email,
+        recipient.first_name,
+        template_name,
+        placeholders,
+    )
 
 class BusinessApplicationService:
 
@@ -73,6 +151,16 @@ class BusinessApplicationService:
         user.has_business = True
         user.business_verified = False
         user.save(update_fields=["has_business", "business_verified"])
+
+        send_business_email(
+            user,
+            "BUSINESS_APPLICATION_RECEIVED",
+            {
+                "business_type": application.get_business_type_display(),
+                "category_name": category.name,
+                "location": location,
+            },
+        )
 
         return application
 
@@ -173,7 +261,11 @@ class BusinessApplicationService:
             profile.location = application.location
             profile.save(update_fields=["category", "location", "updated_at"])
 
-
+        send_business_email(
+            user,
+            "BUSINESS_APPLICATION_APPROVED",
+            {},
+        )
 
         return application, profile
 
@@ -227,6 +319,14 @@ class BusinessApplicationService:
         user.has_business = True
         user.business_verified = False
         user.save(update_fields=["has_business", "business_verified"])
+
+        send_business_email(
+            user,
+            "BUSINESS_APPLICATION_REJECTED",
+            {
+                "rejection_reason": reason,
+            },
+        )
 
         return application
 
@@ -338,6 +438,20 @@ class BusinessUpgradeService:
                     "branch_name", ""
                 ),
             )
+
+        send_business_email(
+            business.owner,
+            "BUSINESS_UPGRADE_SUBMITTED",
+            {
+                "business_name": business.name,
+                "current_business_type": (
+                    upgrade_request.get_current_business_type_display()
+                ),
+                "requested_business_type": (
+                    upgrade_request.get_requested_business_type_display()
+                ),
+            },
+        )
 
         return upgrade_request
 
@@ -549,7 +663,19 @@ class BusinessUpgradeService:
             ]
         )
 
+        send_business_email(
+            business.owner,
+            "BUSINESS_UPGRADE_APPROVED",
+            {
+                "business_name": business.name,
+                "requested_business_type": (
+                    upgrade_request.get_requested_business_type_display()
+                ),
+            },
+        )
+
         return upgrade_request, business
+
 
     # =====================================================
     # REJECT
@@ -592,6 +718,19 @@ class BusinessUpgradeService:
             ]
         )
 
+        send_business_email(
+            upgrade_request.business.owner,
+            "BUSINESS_UPGRADE_REJECTED",
+            {
+                "business_name": upgrade_request.business.name,
+                "requested_business_type": (
+                    upgrade_request.get_requested_business_type_display()
+                ),
+                "rejection_reason": reason,
+            },
+        )
+
         return upgrade_request
+
 
 

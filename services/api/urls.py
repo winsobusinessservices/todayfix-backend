@@ -15,7 +15,8 @@ from .views import (
     UnitDetailAPIView,
     MyServicesAPIView,
     ServiceEmployeeDeleteAPIView,
-    SubCategoryServiceListAPIView
+    SubCategoryServiceListAPIView,
+    ServiceRankUpdateAPIView
 )
 
 
@@ -122,4 +123,11 @@ urlpatterns = [
         ServiceEmployeeListAPIView.as_view(),
         name="service-employee-list",
     ),
+
+    path(
+        "<uuid:service_uuid>/rank/",
+        ServiceRankUpdateAPIView.as_view(),
+        name="service-rank-update",
+    ),
+
 ]

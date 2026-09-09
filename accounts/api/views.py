@@ -1226,9 +1226,22 @@ class ForgotPasswordView(APIView):
                 reset_token
             )
         )
-        template = EmailTemplate.objects.get(
-            name="PASSWORD_RESET_LINK"
-        )
+        try:
+            template = EmailTemplate.objects.get(
+                name="PASSWORD_RESET_LINK"
+            )
+        except EmailTemplate.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Unable to send the password reset "
+                        "email right now. Please try again "
+                        "later or contact support."
+                    ),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         html_message = render_to_string(
             "emails/base_email.html",
             {
@@ -1340,9 +1353,22 @@ class UnifiedPasswordResetView(APIView):
                 f"?user_uuid={user.user_uuid}"
                 f"&token={reset_token.token}"
             )
-            template = EmailTemplate.objects.get(
-                name="PASSWORD_RESET_LINK"
-            )
+            try:
+                template = EmailTemplate.objects.get(
+                    name="PASSWORD_RESET_LINK"
+                )
+            except EmailTemplate.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Unable to send the password reset "
+                            "email right now. Please try again "
+                            "later or contact support."
+                        ),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             subject = template.subject
             message = template.message.replace(
                 "{{ first_name }}",

@@ -568,7 +568,14 @@ class ServiceEmployeeSerializer(serializers.ModelSerializer):
 
         return attrs
 
-
+class ServiceRankUpdateSerializer(
+    serializers.Serializer
+):
+    rank = serializers.IntegerField(
+        required=True,
+        min_value=1,
+    )
+    
 class ServiceEmployeeReadSerializer(serializers.ModelSerializer):
 
     service_uuid = serializers.UUIDField(

@@ -13,6 +13,7 @@ from .views import (
     EmployeeListAPIView,
     EmployeeUpdateAPIView,
     EmployeeDeleteAPIView,
+    AdminBusinessProfileRankUpdateAPIView,
     ProviderAvailabilityCreateAPIView,
     ProviderAvailabilityUpdateAPIView,
     ProviderAvailabilityListAPIView,
@@ -137,6 +138,12 @@ urlpatterns = [
         "profiles/<uuid:business_profile_uuid>/",
         BusinessProfileUpdateAPIView.as_view(),
         name="business-profile-update",
+    ),
+
+    path(
+        "admin/profiles/<uuid:business_profile_uuid>/rank/",
+        AdminBusinessProfileRankUpdateAPIView.as_view(),
+        name="admin-business-profile-rank-update",
     ),
 
     path(

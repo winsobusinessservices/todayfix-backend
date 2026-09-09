@@ -103,6 +103,7 @@ class BusinessProfileAdmin(admin.ModelAdmin):
         "category",
         "location",
         "name",
+        "rank",
         "is_active",
         "created_at",
     )
@@ -111,6 +112,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
         "business_type",
         "is_active",
     )
+
+    list_editable = (
+        "rank",
+    )
+
+    ordering = ("-rank", "-created_at")
 
     search_fields = (
         "business_profile_uuid",
