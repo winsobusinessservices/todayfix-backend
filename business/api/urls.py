@@ -69,6 +69,12 @@ urlpatterns = [
     ),
 
     path(
+        "applications/<uuid:business_application_uuid>/documents/<str:document_key>/view/",
+        BusinessApplicationDocumentViewAPIView.as_view(),
+        name="business-application-document-view",
+    ),
+
+    path(
         "upgrade-requests/list/",
         BusinessUpgradeRequestListAPIView.as_view(),
         name="business-upgrade-request-list",
