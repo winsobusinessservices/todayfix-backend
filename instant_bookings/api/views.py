@@ -32,6 +32,7 @@ from instant_bookings.models import (
 
 from instant_bookings.offer_services import InstantBookingOfferService
 from instant_bookings.services import InstantBookingQuoteService
+from instant_bookings.utils.geo import InvalidLocationError
 from services.models import Service
 
 from instant_bookings.email_service import send_instant_booking_email
@@ -307,7 +308,20 @@ class InstantBookingCreateAPIView(APIView):
             customer_note=customer_note,
         )
 
-        quote = InstantBookingQuoteService.get_quote(quote_booking)
+        try:
+            quote = InstantBookingQuoteService.get_quote(quote_booking)
+        except InvalidLocationError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Your saved address does not have a valid "
+                        "map location. Please update your address "
+                        "and try again."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Service exists, but there is currently no eligible provider within 15 km.
         if not quote or not quote.get("candidates"):

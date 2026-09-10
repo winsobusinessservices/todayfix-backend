@@ -431,7 +431,7 @@ class BookingService:
             notification_type=NotificationType.BOOKING_CREATED,
             title="New Booking",
             message=f"New booking received from {user.first_name}.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
 
         # =====================================================
@@ -809,9 +809,9 @@ class BookingService:
             notification_type=NotificationType.BOOKING_CANCELLED,
             title="Booking Cancelled",
             message=f"Booking cancelled by {booking.user.first_name}.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
-        return booking
+        
 
         common_placeholders = {
             "business_name": booking.business.name,
@@ -862,9 +862,9 @@ class BookingService:
             notification_type=NotificationType.BOOKING_ACCEPTED,
             title="Booking Accepted",
             message="Your booking has been accepted by the business.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
-        return booking
+        
 
         BookingService._send_booking_email(
             booking,
@@ -899,9 +899,9 @@ class BookingService:
             notification_type=NotificationType.BOOKING_REJECTED,
             title="Booking Rejected",
             message="Your booking was rejected by the business.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
-        return booking
+        
 
         BookingService._send_booking_email(
             booking,
@@ -934,7 +934,7 @@ class BookingService:
             notification_type=NotificationType.SERVICE_STARTED,
             title="Service Started",
             message="Your service has started.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
         return booking
 
@@ -958,11 +958,9 @@ class BookingService:
             notification_type=NotificationType.SERVICE_COMPLETED,
             title="Service Completed",
             message="Your service has been completed.",
-            data={"booking_id": str(booking.booking_uuid)}
+            data={"booking_id": str(booking.uuid)}
         )
-        return booking
-
-
+        
         BookingService._send_booking_email(
             booking,
             "BOOKING_COMPLETED",

@@ -15,6 +15,11 @@ from accounts.models import (
     Address,
 )
 
+from instant_bookings.utils.geo import (
+    InvalidLocationError,
+    extract_coordinates,
+)
+
 from accounts.choices import UserRole
 
 
@@ -584,6 +589,20 @@ class AddressSerializer(
         source="user.user_uuid",
         read_only=True,
     )
+
+    def validate_location(self, value):
+        if not value:
+            return value
+
+        try:
+            extract_coordinates(value)
+        except InvalidLocationError:
+            raise serializers.ValidationError(
+                "Please provide a valid Google Maps location "
+                "(use the 'Embed a map' link from Google Maps)."
+            )
+
+        return value
 
     class Meta:
 
