@@ -1,7 +1,7 @@
 import math
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-
+from types import SimpleNamespace
 from django.db.models import Q
 from django.utils import timezone
 
@@ -295,17 +295,27 @@ class InstantBookingQuoteService:
             10.00 <= distance < 15.00
 
         Therefore, exactly 15 km is rejected.
+
+        TEMPORARY: pricing rules are disabled for now. Instead of
+        looking up InstantBookingPricingRule from the DB, we return
+        a hardcoded zero-fee fallback so instant bookings aren't
+        blocked while pricing setup is pending. Distances beyond
+        15 km are still rejected below.
+
+        TODO: remove this bypass and restore the DB lookup once
+        real InstantBookingPricingRule rows are configured.
         """
         distance = Decimal(str(distance_km))
 
-        return (
-            InstantBookingPricingRule.objects.filter(
-                is_active=True,
-                minimum_distance_km__lte=distance,
-                maximum_distance_km__gt=distance,
-            )
-            .order_by("minimum_distance_km")
-            .first()
+        if distance >= Decimal("15.00"):
+            return None
+
+        return SimpleNamespace(
+            minimum_distance_km=Decimal("0.00"),
+            maximum_distance_km=Decimal("15.00"),
+            platform_fee=Decimal("0.00"),
+            travel_fee_per_km=Decimal("0.00"),
+            gst_percentage=Decimal("0.00"),
         )
 
     @classmethod

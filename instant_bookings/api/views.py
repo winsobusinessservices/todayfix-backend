@@ -392,7 +392,7 @@ class InstantBookingCreateAPIView(APIView):
         for offer in offers:
             NotificationService.create(
                 recipient=offer.business.owner,
-                notification_type=NotificationType.INSTANT_BOOKING_CREATED,
+                notification_type=NotificationType.INSTANT_BOOKING_OFFER,
                 title="New Instant Booking Request",
                 message=f"New instant booking request for {booking.requested_service_name}.",
                 data={"booking_id": str(booking.instant_booking_uuid)}
