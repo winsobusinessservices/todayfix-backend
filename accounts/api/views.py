@@ -131,17 +131,9 @@ class RegisterUserAPIView(CreateAPIView):
             otp = SignupOTPService.create_otp(
                 phone=phone
             )
-            print(
-                f"\n{'=' * 50}\n"
-                f"SIGNUP OTP\n"
-                f"Phone: {phone}\n"
-                f"OTP: {otp}\n"
-                f"Expires: 5 minutes\n"
-                f"{'=' * 50}\n"
-            )
-            logger.debug(
-                "SIGNUP OTP | Phone: %s | OTP: %s | Expires: 5 min",
-                phone, otp,
+            logger.info(
+                "SIGNUP OTP requested | Phone: %s | Expires: 5 min",
+                phone[-4:] if phone else None,
             )
             return Response(
                 {
@@ -648,14 +640,9 @@ class UpdateProfileAPIView(APIView):
                 user=request.user,
                 phone=new_phone,
             )
-            print(
-                f"\n{'=' * 50}\n"
-                f"PHONE UPDATE OTP\n"
-                f"User: {request.user.email}\n"
-                f"Phone: {new_phone}\n"
-                f"OTP: {otp}\n"
-                f"Expires: 5 minutes\n"
-                f"{'=' * 50}\n"
+            logger.info(
+                "PHONE UPDATE OTP requested | Phone: %s | Expires: 5 min",
+                new_phone[-4:] if new_phone else None,
             )
             return Response(
                 {

@@ -20,7 +20,7 @@ from accounts.models import (
     SignupOTPVerification,
 )
 
-from .fast2sms import Fast2SMSProvider
+from .sms import SMSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def _get_sms_provider():
     Replace this to switch providers without changing
     any other code.
     """
-    return Fast2SMSProvider()
+    return SMSProvider()
 
 
 # =============================================================
@@ -106,18 +106,19 @@ class OTPService:
         provider = _get_sms_provider()
         result = provider.send_otp(phone, otp)
 
+        if not result.success:
+            logger.error("OTP SMS delivery failed for phone ending %s: %s", phone[-4:], result.error_message)
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(result.error_message or "Unable to send OTP. Please try again later.")
+
         otp_record = OTPVerification.objects.create(
             user=user,
             phone=phone,
             otp_hash=otp_hash,
             purpose=OTPVerification.PURPOSE_LOGIN,
-            provider=getattr(
-                provider,
-                "PROVIDER_NAME",
-                "FAST2SMS",
-            ),
-            provider_request_id=(
-                result.provider_request_id
+            provider="SMS",
+            external_request_id=(
+                result.external_request_id
                 if result
                 else None
             ),
@@ -129,12 +130,9 @@ class OTPService:
             ),
         )
 
-        logger.debug(
-            "OTP created | phone=%s | record=%s | "
-            "provider_request_id=%s",
-            phone,
-            otp_record.id,
-            otp_record.provider_request_id,
+        logger.info(
+            "OTP SMS request initiated for phone ending %s",
+            phone[-4:]
         )
 
         return otp
@@ -299,7 +297,12 @@ class SignupOTPService:
 
         # Send via SMS provider
         provider = _get_sms_provider()
-        provider.send_otp(phone, otp)
+        result = provider.send_otp(phone, otp)
+
+        if not result.success:
+            logger.error("OTP SMS delivery failed for phone ending %s: %s", phone[-4:], result.error_message)
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(result.error_message or "Unable to send OTP. Please try again later.")
 
         SignupOTPVerification.objects.create(
             phone=phone,
@@ -310,6 +313,20 @@ class SignupOTPService:
                     minutes=cls.OTP_EXPIRY_MINUTES
                 )
             ),
+        )
+
+        print(
+            f"\n{'=' * 50}\n"
+            f"SIGNUP OTP\n"
+            f"Phone: {phone}\n"
+            f"OTP: {otp}\n"
+            f"Expires: 5 minutes\n"
+            f"{'=' * 50}\n"
+        )
+
+        logger.info(
+            "OTP SMS request initiated for phone ending %s",
+            phone[-4:]
         )
 
         return otp
