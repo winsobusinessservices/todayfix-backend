@@ -479,10 +479,12 @@ EMAIL_LOGO_URL = (
 
 
 # ============================================================
-# FAST2SMS
+# SMS SETTINGS
 # ============================================================
 
-FAST2SMS_API_KEY = os.getenv(
-    "FAST2SMS_API_KEY",
-    "",
-)
+SMS_API_URL = os.getenv("SMS_API_URL", "")
+SMS_API_KEY = os.getenv("SMS_API_KEY", "")
+SMS_SENDER_ID = os.getenv("SMS_SENDER_ID", "")
+SMS_TEMPLATE_ID = os.getenv("SMS_TEMPLATE_ID", "")
+SMS_ENTITY_ID = os.getenv("SMS_ENTITY_ID", "")
+SMS_TIMEOUT = int(os.getenv("SMS_TIMEOUT", "10"))

@@ -141,11 +141,11 @@ class OTPVerification(models.Model):
 
     provider = models.CharField(
         max_length=30,
-        default="FAST2SMS",
+        default="SMS",
         db_index=True,
     )
 
-    provider_request_id = models.CharField(
+    external_request_id = models.CharField(
         max_length=255,
         blank=True,
         null=True,

@@ -13,18 +13,21 @@ class SMSProviderResult:
     def __init__(
         self,
         success,
-        provider_request_id=None,
+        external_request_id=None,
         error_message="",
+        status_code=None,
     ):
         self.success = success
-        self.provider_request_id = provider_request_id
+        self.external_request_id = external_request_id
         self.error_message = error_message
+        self.status_code = status_code
 
     def __repr__(self):
         return (
             f"SMSProviderResult("
             f"success={self.success}, "
-            f"provider_request_id={self.provider_request_id})"
+            f"external_request_id={self.external_request_id}, "
+            f"status_code={self.status_code})"
         )
 
 
