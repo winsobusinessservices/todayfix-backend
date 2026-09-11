@@ -26,4 +26,5 @@ daphne==4.0.0
 channels-redis==4.1.0
 nltk
 mysqlclient
-uvicorn[standard]
+gunicorn==21.2.0
+uvicorn[standard]==0.27.1
