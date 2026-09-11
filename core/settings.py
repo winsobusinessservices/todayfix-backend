@@ -477,6 +477,11 @@ EMAIL_LOGO_URL = (
     f"{FRONTEND_DOMAIN}/static/images/todayfix-logo.png"
 )
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 # ============================================================
 # SMS SETTINGS
