@@ -706,7 +706,7 @@ class BusinessInstantBookingOfferAcceptAPIView(APIView):
             recipient=booking.customer,
             notification_type=NotificationType.INSTANT_BOOKING_ACCEPTED,
             title="Instant Booking Accepted",
-            message=f"Your instant booking was accepted by {offer.business.business_name}.",
+            message=f"Your instant booking was accepted by {offer.business.name}.",
             data={"booking_id": str(booking.instant_booking_uuid)}
         )
 
