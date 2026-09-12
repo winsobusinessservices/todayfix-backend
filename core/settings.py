@@ -467,7 +467,11 @@ EMAIL_PORT = int(
 )
 
 EMAIL_USE_TLS = (
-    os.getenv("EMAIL_USE_TLS", "True") == "True"
+    os.getenv("EMAIL_USE_TLS", "False").lower() == "true"
+)
+
+EMAIL_USE_SSL = (
+    os.getenv("EMAIL_USE_SSL", "False").lower() == "true"
 )
 
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
