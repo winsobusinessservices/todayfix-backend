@@ -32,14 +32,14 @@ urlpatterns = [
     ),
 
     path(
-        "subcategories/<slug:slug>/",
-        SubCategoryBySlugAPIView.as_view(),
+        "subcategories/<uuid:subCat_uuid>/",
+        SubCategoryDetailAPIView.as_view(),
         name="subcategory-detail",
     ),
 
     path(
-        "subcategories/<uuid:subCat_uuid>/",
-        SubCategoryDetailAPIView.as_view(),
+        "subcategories/<slug:slug>/",
+        SubCategoryBySlugAPIView.as_view(),
     ),
 ]
 
