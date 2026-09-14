@@ -83,8 +83,8 @@ logger = logging.getLogger(__name__)
                     value={
                         "success": True,
                         "message": (
-                            "Verification email sent successfully. "
-                            "Please check your email to complete registration."
+                            "Verification email/Phone OTP sent successfully. "
+                            "Please check your email/phone to complete registration."
                         ),
                     },
                     response_only=True,
@@ -192,8 +192,8 @@ class RegisterUserAPIView(CreateAPIView):
             {
                 "success": True,
                 "message": (
-                    "Verification email sent successfully. "
-                    "Please check your email to complete registration."
+                    "Verification email/Phone OTP sent successfully. "
+                    "Please check your email/phone to complete registration."
                 ),
             },
             status=status.HTTP_201_CREATED,

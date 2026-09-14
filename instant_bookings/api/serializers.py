@@ -293,3 +293,64 @@ class InstantBookingOfferReadSerializer(
         ]
 
         read_only_fields = fields
+
+class BusinessInstantBookingAcceptedSerializer(
+    serializers.ModelSerializer
+):
+    """
+    Accepted-booking response shown to the assigned business owner.
+
+    Lets the provider app recover `instant_booking_uuid` for a booking
+    it has already accepted, even after the app was closed/logged out.
+    """
+
+    category_name = serializers.CharField(
+        source="category.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    subcategory_name = serializers.CharField(
+        source="subcategory.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    address_uuid = serializers.UUIDField(
+        source="address.add_uuid",
+        read_only=True,
+    )
+
+    employee_uuid = serializers.UUIDField(
+        source="assigned_employee.employee_uuid",
+        read_only=True,
+        allow_null=True,
+    )
+
+    employee_name = serializers.CharField(
+        source="assigned_employee.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = InstantBooking
+
+        fields = [
+            "instant_booking_uuid",
+            "category_name",
+            "subcategory_name",
+            "address_uuid",
+            "requested_service_name",
+            "customer_note",
+            "quoted_price",
+            "tip_amount",
+            "total_payable_price",
+            "employee_uuid",
+            "employee_name",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = fields

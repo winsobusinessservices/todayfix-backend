@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from instant_bookings.api.serializers import (
+    BusinessInstantBookingAcceptedSerializer,
     InstantBookingCreateSerializer,
     InstantBookingOfferReadSerializer,
     InstantBookingReadSerializer,
@@ -236,6 +237,11 @@ class InstantServiceSearchAPIView(APIView):
 
 @extend_schema(
     tags=["Instant Bookings"],
+    summary="Create Instant Booking",
+    description=(
+        "Customer creates an instant booking and eligible providers "
+        "receive pop-ups."
+    ),
     request=InstantBookingCreateSerializer,
     responses={
         201: OpenApiResponse(
@@ -245,7 +251,7 @@ class InstantServiceSearchAPIView(APIView):
                 OpenApiExample(
                     "Response",
                     value={'success': True,
- 'message': 'Instant booking created and provider offers sent successfully.',
+ 'message': 'Instant booking created and provider pop-ups sent successfully.',
  'data': {'instant_booking_uuid': '550e8400-e29b-41d4-a716-446655440000',
           'category_uuid': '550e8400-e29b-41d4-a716-446655440001',
           'category_name': 'Electrical',
@@ -404,7 +410,7 @@ class InstantBookingCreateAPIView(APIView):
             {
                 "success": True,
                 "message": (
-                    "Instant booking created and provider offers "
+                    "Instant booking created and provider pop-ups "
                     "sent successfully."
                 ),
                 "data": booking_response_data(booking),
@@ -488,11 +494,18 @@ class CustomerInstantBookingDetailAPIView(APIView):
 
 
 
-@extend_schema(tags=["Instant Bookings"],
+@extend_schema(
+    tags=["Instant Bookings"],
+    summary="View Pending Pop-ups",
+    description=(
+        "Business owner views pending instant-booking pop-ups. "
+        "A provider can see the pop-up until the final 15-minute "
+        "deadline."
+    ),
     responses={
         200: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
-            description='Pending instant booking offers',
+            description='Pending instant booking pop-ups',
             examples=[
                 OpenApiExample(
                     "Response",
@@ -517,9 +530,9 @@ class CustomerInstantBookingDetailAPIView(APIView):
     },)
 class BusinessInstantBookingOffersAPIView(APIView):
     """
-    Business owner views pending offers.
+    Business owner views pending pop-ups.
 
-    A provider can see the offer until the final 15-minute deadline.
+    A provider can see the pop-up until the final 15-minute deadline.
     """
 
     permission_classes = [IsAuthenticated]
@@ -570,12 +583,83 @@ class BusinessInstantBookingOffersAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
 @extend_schema(tags=["Instant Bookings"],
     responses={
         200: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
-            description='Successful response',
+            description='Accepted instant bookings assigned to the business',
+            examples=[
+                OpenApiExample(
+                    "Response",
+                    value={'success': True,
+ 'data': [{'instant_booking_uuid': '550e8400-e29b-41d4-a716-446655440000',
+           'category_name': 'Electrical',
+           'subcategory_name': 'Wiring',
+           'address_uuid': '550e8400-e29b-41d4-a716-446655440003',
+           'requested_service_name': 'Wiring',
+           'customer_note': 'Please check the wiring issue.',
+           'quoted_price': '678.50',
+           'tip_amount': '0.00',
+           'total_payable_price': '678.50',
+           'employee_uuid': '550e8400-e29b-41d4-a716-446655440012',
+           'employee_name': 'John',
+           'status': 'ASSIGNED',
+           'created_at': '2026-09-04T12:15:00Z',
+           'updated_at': '2026-09-04T12:16:00Z'}]},
+                )
+            ],
+        )
+    },)
+class BusinessInstantBookingAcceptedListAPIView(APIView):
+    """
+    Business owner views bookings they have accepted that are not
+    yet completed (ASSIGNED or IN_PROGRESS).
+
+    This lets the provider app recover `instant_booking_uuid` for
+    an accepted booking after a logout/app restart, so the assigned
+    provider can still call the start/complete endpoints.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        bookings = (
+            InstantBooking.objects.select_related(
+                "category",
+                "subcategory",
+                "address",
+                "assigned_business",
+                "assigned_employee",
+            )
+            .filter(
+                assigned_business__owner=request.user,
+                status__in=[
+                    InstantBookingStatus.ASSIGNED,
+                    InstantBookingStatus.IN_PROGRESS,
+                ],
+            )
+            .order_by("-updated_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": BusinessInstantBookingAcceptedSerializer(
+                    bookings,
+                    many=True,
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+@extend_schema(
+    tags=["Instant Bookings"],
+    summary="Accept Pop-up",
+    description="First eligible provider to accept a pop-up gets the booking.",
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description='Pop-up accepted successfully',
             examples=[
                 OpenApiExample(
                     "Response",
@@ -614,16 +698,16 @@ class BusinessInstantBookingOffersAPIView(APIView):
     },)
 class BusinessInstantBookingOfferAcceptAPIView(APIView):
     """
-    First eligible provider to accept gets the booking.
+    First eligible provider to accept a pop-up gets the booking.
     """
 
     permission_classes = [IsAuthenticated]
 
     @transaction.atomic
-    def post(self, request, offer_id):
+    def post(self, request, popup_id):
         offer = get_object_or_404(
             InstantBookingOffer.objects.select_for_update(),
-            id=offer_id,
+            id=popup_id,
         )
 
         if offer.business.owner != request.user:
@@ -1028,6 +1112,12 @@ class BusinessInstantBookingCompleteAPIView(APIView):
 
 @extend_schema(
     tags=["Instant Bookings"],
+    summary="Retry Instant Booking Search",
+    description=(
+        "Customer adds or increases a tip while the 15-minute provider "
+        "search remains active. Existing provider pop-ups are not "
+        "removed."
+    ),
     request=InstantBookingRetrySerializer,
     responses={
         200: OpenApiResponse(
@@ -1073,8 +1163,8 @@ class BusinessInstantBookingCompleteAPIView(APIView):
 )
 class CustomerInstantBookingRetryAPIView(APIView):
     """
-    Customer adds or increases a tip while the 15-minute provider search
-    remains active. Existing provider offers are not removed.
+    Customer adds or increases a tip while the 15-minute provider
+    search remains active. Existing provider pop-ups are not removed.
     """
 
     permission_classes = [IsAuthenticated]

@@ -11,7 +11,18 @@ from .views import (
     InstantServiceSearchAPIView,
     CustomerInstantBookingRetryAPIView
 )
-
+from .views import (
+    BusinessInstantBookingAcceptedListAPIView,
+    BusinessInstantBookingOfferAcceptAPIView,
+    BusinessInstantBookingOffersAPIView,
+    BusinessInstantBookingCompleteAPIView,
+    BusinessInstantBookingStartAPIView,
+    CustomerInstantBookingCancelAPIView,
+    CustomerInstantBookingDetailAPIView,
+    InstantBookingCreateAPIView,
+    InstantServiceSearchAPIView,
+    CustomerInstantBookingRetryAPIView
+)
 
 urlpatterns = [
     # Customer searches available services.
@@ -45,18 +56,25 @@ urlpatterns = [
         name="customer-instant-booking-cancel",
     ),
 
-    # Provider/business views their pending offers.
+   # Provider/business views their pending pop-ups.
     path(
-        "provider/offers/",
+        "provider/popups/",
         BusinessInstantBookingOffersAPIView.as_view(),
-        name="business-instant-booking-offers",
+        name="business-instant-booking-popups",
     ),
 
-    # Provider/business accepts one offer.
+    # Provider/business views bookings they have accepted (ASSIGNED /
+    # IN_PROGRESS), so instant_booking_uuid can be recovered after
+    # a logout to start/complete the service.
     path(
-        "provider/offers/<int:offer_id>/accept/",
+        "provider/accepted/",
+        BusinessInstantBookingAcceptedListAPIView.as_view(),
+        name="business-instant-booking-accepted-list",
+    ),
+    path(
+        "provider/popups/<int:popup_id>/accept/",
         BusinessInstantBookingOfferAcceptAPIView.as_view(),
-        name="business-instant-booking-offer-accept",
+        name="business-instant-booking-popup-accept",
     ),
 
     # Assigned provider starts the service.
