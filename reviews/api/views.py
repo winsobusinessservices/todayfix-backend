@@ -8,11 +8,32 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from bookings.models import Booking
 from reviews.models import Review, ReviewImage
 from reviews.serializers import ReviewSerializer, ReviewCreateSerializer, ReviewUpdateSerializer
+from rest_framework.pagination import PageNumberPagination
+import uuid
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class ReviewCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
-    
-    @extend_schema(request=ReviewCreateSerializer, responses={201: ReviewSerializer})
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "booking_uuid": {"type": "string", "format": "uuid"},
+                    "rating": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "message": {"type": "string"},
+                    "images": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                    },
+                },
+                "required": ["booking_uuid", "rating"],
+            }
+        },
+        responses={201: ReviewSerializer},
+    )
     def post(self, request):
         serializer = ReviewCreateSerializer(data=request.data, context={"request": request})
         if serializer.is_valid():
@@ -23,12 +44,40 @@ class ReviewCreateAPIView(APIView):
 
 class MyReviewsAPIView(APIView):
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         reviews = Review.objects.filter(customer=request.user)
-        serializer = ReviewSerializer(reviews, many=True)
-        return Response({"success": True, "data": serializer.data})
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(reviews, request, view=self)
+        serializer = ReviewSerializer(page, many=True)
+        return Response({
+            "success": True,
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "data": serializer.data,
+        })
 
 class RatingSummaryAPIView(APIView):
+    @extend_schema(
+        tags=["reviews"],
+        summary="Get rating summary",
+        description="Returns average rating, total review count, and rating distribution for a business or a service. Provide exactly one of business_uuid or service_uuid.",
+        parameters=[
+            OpenApiParameter(
+                name="business_uuid",
+                description="Business UUID",
+                type=str,
+                required=False,
+            ),
+            OpenApiParameter(
+                name="service_uuid",
+                description="Service UUID",
+                type=str,
+                required=False,
+            ),
+        ],
+    )
     def get(self, request):
         business_uuid = request.query_params.get("business_uuid")
         service_uuid = request.query_params.get("service_uuid")
@@ -37,7 +86,18 @@ class RatingSummaryAPIView(APIView):
             return Response({"success": False, "message": "Provide either business_uuid or service_uuid, not both."}, status=status.HTTP_400_BAD_REQUEST)
         if not business_uuid and not service_uuid:
             return Response({"success": False, "message": "Provide either business_uuid or service_uuid."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
+        if business_uuid:
+            try:
+                uuid.UUID(business_uuid)
+            except ValueError:
+                return Response({"success": False, "message": "business_uuid is not a valid UUID."}, status=status.HTTP_400_BAD_REQUEST)
+        if service_uuid:
+            try:
+                uuid.UUID(service_uuid)
+            except ValueError:
+                return Response({"success": False, "message": "service_uuid is not a valid UUID."}, status=status.HTTP_400_BAD_REQUEST)
+
         filters = {}
         if business_uuid: filters["business__business_profile_uuid"] = business_uuid
         if service_uuid: filters["service__service_uuid"] = service_uuid
@@ -71,16 +131,7 @@ class ReviewDetailAPIView(APIView):
         serializer = ReviewSerializer(review)
         return Response({"success": True, "data": serializer.data})
         
-    def patch(self, request, review_uuid):
-        review = get_object_or_404(Review, review_uuid=review_uuid)
-        if review.customer != request.user:
-            return Response({"success": False, "message": "Unauthorized."}, status=status.HTTP_403_FORBIDDEN)
-        serializer = ReviewUpdateSerializer(review, data=request.data, partial=True)
-        if serializer.is_valid():
-            review = serializer.save()
-            read_serializer = ReviewSerializer(review)
-            return Response({"success": True, "data": read_serializer.data})
-        return Response({"success": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
 
     def delete(self, request, review_uuid):
         review = get_object_or_404(Review, review_uuid=review_uuid)
