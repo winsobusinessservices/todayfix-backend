@@ -26,7 +26,7 @@ from rest_framework.permissions import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import IntegrityError, transaction
-
+from django.db.models import ProtectedError
 from django.template.loader import render_to_string
 from django.core.mail import EmailMultiAlternatives
 from accounts.models import (
@@ -617,12 +617,25 @@ class UpdateProfileAPIView(APIView):
             "phone"
         )
         # -------------------------------------------------
+        # -------------------------------------------------
         # PHONE NUMBER CHANGE
         # -------------------------------------------------
         if (
             new_phone
             and new_phone != request.user.phone
         ):
+            if request.user.phone:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Your phone number is already set and "
+                            "cannot be changed here. Please contact "
+                            "support to have it updated."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if not OTPService.can_send_otp(
                 new_phone
             ):
@@ -1151,7 +1164,19 @@ class DeleteUserAddressAPIView(APIView):
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-        address.delete()
+        try:
+            address.delete()
+        except ProtectedError:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This address is linked to an existing "
+                        "booking and cannot be deleted."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             {
                 "success": True,

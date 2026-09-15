@@ -38,6 +38,8 @@ class NotificationMarkReadView(generics.UpdateAPIView):
     """
     serializer_class = NotificationMarkReadSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ["patch", "head", "options"]
+
     
     def get_queryset(self):
         return Notification.objects.filter(recipient=self.request.user)
@@ -69,6 +71,7 @@ class NotificationMarkAllReadView(APIView):
     Mark all unread notifications as read for the authenticated user.
     """
     permission_classes = [IsAuthenticated]
+    
 
     @extend_schema(
         tags=["Notifications"],

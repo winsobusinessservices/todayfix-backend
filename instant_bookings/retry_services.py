@@ -216,7 +216,13 @@ class InstantBookingRetryService:
         
         from notifications.services import NotificationService
         from notifications.choices import NotificationType
+        # Same as booking creation: one offer per eligible employee,
+        # but only one notification per business owner for now.
+        notified_business_ids = set()
         for offer in offers:
+            if offer.business_id in notified_business_ids:
+                continue
+            notified_business_ids.add(offer.business_id)
             NotificationService.create(
                 recipient=offer.business.owner,
                 notification_type=NotificationType.INSTANT_BOOKING_CREATED,

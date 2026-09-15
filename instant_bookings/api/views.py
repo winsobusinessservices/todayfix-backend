@@ -395,10 +395,19 @@ class InstantBookingCreateAPIView(APIView):
         
         from notifications.services import NotificationService
         from notifications.choices import NotificationType
+        # A business can have several employees eligible for the
+        # same service, which creates one offer per employee.
+        # Until employee login exists, only the business owner
+        # should be notified — once per business, not once per
+        # employee offer.
+        notified_business_ids = set()
         for offer in offers:
+            if offer.business_id in notified_business_ids:
+                continue
+            notified_business_ids.add(offer.business_id)
             NotificationService.create(
                 recipient=offer.business.owner,
-                notification_type=NotificationType.INSTANT_BOOKING_OFFER,
+                notification_type=NotificationType.INSTANT_BOOKING_CREATED,
                 title="New Instant Booking Request",
                 message=f"New instant booking request for {booking.requested_service_name}.",
                 data={"booking_id": str(booking.instant_booking_uuid)}
@@ -572,11 +581,24 @@ class BusinessInstantBookingOffersAPIView(APIView):
             .order_by("-created_at")
         )
 
+        # MySQL has no DISTINCT ON, so dedupe in Python: a single
+        # instant booking can have one offer per eligible employee.
+        # Until employee login exists, the business owner should
+        # only see one entry per instant booking, not one per
+        # employee it happens to be routed through.
+        seen_booking_ids = set()
+        deduped_offers = []
+        for offer in offers:
+            if offer.instant_booking_id in seen_booking_ids:
+                continue
+            seen_booking_ids.add(offer.instant_booking_id)
+            deduped_offers.append(offer)
+
         return Response(
             {
                 "success": True,
                 "data": InstantBookingOfferReadSerializer(
-                    offers,
+                    deduped_offers,
                     many=True,
                 ).data,
             },
