@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "calling_service",
     "notifications",
     "reviews",
+    "fix_coins",
 ]
 
 

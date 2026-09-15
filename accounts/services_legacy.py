@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import timedelta
 from django.conf import settings
@@ -18,6 +19,9 @@ from accounts.models import (
 )
 # Import from new location for backward compatibility
 from accounts.services.otp_service import SignupOTPService  # noqa: F401
+from fix_coins.services import grant_signup_bonus
+
+logger = logging.getLogger(__name__)
 
 
 def send_welcome_email(user):
@@ -382,6 +386,11 @@ class AuthService:
 
         send_welcome_email(user)
 
+        try:
+            grant_signup_bonus(user)
+        except Exception:
+            logger.exception("Failed to grant signup bonus to user %s after email verification", user.pk)
+
         return user
     # =========================================================
     # PHONE OTP REGISTRATION
@@ -512,6 +521,11 @@ class AuthService:
         pending_registration.delete()
 
         send_welcome_email(user)
+
+        try:
+            grant_signup_bonus(user)
+        except Exception:
+            logger.exception("Failed to grant signup bonus to user %s after phone verification", user.pk)
 
         return user
     # =========================================================
