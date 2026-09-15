@@ -40,6 +40,7 @@ from accounts.services import (
     OTPService,
     SignupOTPService,
 )
+from fix_coins.services import grant_signup_bonus
 from .serializers import (
     RegisterUserSerializer,
     LoginSerializer,
@@ -1963,6 +1964,13 @@ class GoogleLoginAPIView(APIView):
                             google_sub=google_sub,
                             google_email=email,
                         )
+
+                        try:
+                            grant_signup_bonus(user)
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "Failed to grant signup bonus to Google user %s", user.pk
+                            )
 
         except IntegrityError:
             # A simultaneous first-time Google request may have

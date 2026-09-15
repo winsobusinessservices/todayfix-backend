@@ -1,0 +1,3 @@
+"""
+Fix-Coins app package.
+"""
