@@ -21,6 +21,62 @@ from django.template.loader import render_to_string
 
 from accounts.models import EmailTemplate
 
+def has_active_service_in_progress(
+    business,
+    employees=None,
+    exclude_booking_uuid=None,
+    exclude_instant_booking_uuid=None,
+):
+    """
+    Return True if the provider(s) who would handle this booking are
+    already tied up on another IN_PROGRESS service (scheduled or
+    instant).
+
+    - Company/investor business: pass the Employee(s) actually assigned
+      to this booking. Only other in-progress work assigned to one of
+      these SAME employees counts as a conflict — a different, free
+      employee at the same business is not blocked.
+    - Individual business (no employees to pass): the owner is the sole
+      provider, so any other in-progress booking for the business
+      counts as a conflict, matching the availability check already
+      used in BookingService.create_booking().
+    """
+    from bookings.choices import BookingStatus
+    from bookings.models import Booking, BookingEmployee
+    from instant_bookings.models import InstantBooking, InstantBookingStatus
+
+    employees = list(employees) if employees else []
+
+    scheduled_qs = Booking.objects.filter(
+        business=business,
+        status=BookingStatus.IN_PROGRESS,
+    )
+    if exclude_booking_uuid:
+        scheduled_qs = scheduled_qs.exclude(uuid=exclude_booking_uuid)
+
+    instant_qs = InstantBooking.objects.filter(
+        assigned_business=business,
+        status=InstantBookingStatus.IN_PROGRESS,
+    )
+    if exclude_instant_booking_uuid:
+        instant_qs = instant_qs.exclude(
+            instant_booking_uuid=exclude_instant_booking_uuid
+        )
+
+    if not employees:
+        # Individual business - owner is the sole provider.
+        return scheduled_qs.exists() or instant_qs.exists()
+
+    # Company / investor business - only THESE employees matter.
+    if BookingEmployee.objects.filter(
+        booking__in=scheduled_qs,
+        employee__in=employees,
+    ).exists():
+        return True
+
+    return instant_qs.filter(assigned_employee__in=employees).exists()
+
+
 def get_current_business_identity(business):
     """
     Return the BusinessIdentity currently on file for an approved

@@ -1023,6 +1023,29 @@ class BusinessInstantBookingStartAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from business.services import has_active_service_in_progress
+
+        assigned_employees = (
+            [booking.assigned_employee] if booking.assigned_employee else []
+        )
+
+        if has_active_service_in_progress(
+            booking.assigned_business,
+            employees=assigned_employees,
+            exclude_instant_booking_uuid=booking.instant_booking_uuid,
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "The provider for this booking is currently "
+                        "handling another service. Please wait until "
+                        "it's completed."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         booking.status = InstantBookingStatus.IN_PROGRESS
         booking.save(update_fields=["status", "updated_at"])
         

@@ -22,7 +22,7 @@ from rest_framework.views import APIView
 
 from accounts.choices import UserRole
 
-from ..choices import BusinessApplicationStatus, BusinessType, EmployeeAvailabilityStatus
+from ..choices import BusinessApplicationStatus, BusinessType, DayOfWeek, EmployeeAvailabilityStatus
 
 from ..models import (
     BusinessApplication,
@@ -60,6 +60,7 @@ from .serializers import (
     BusinessUpgradeRequestFullSerializer,
     BusinessUpgradeRequestDocumentsSerializer,
     BusinessProfileRankUpdateSerializer,
+    WorkingScheduleApplyToDaysSerializer,
 )
 
 from rest_framework.generics import (
@@ -2169,6 +2170,271 @@ class EmployeeWorkingScheduleCreateAPIView(APIView):
 # =================================================================================================================
 
 
+@extend_schema(
+    tags=["Provider Working Schedule"],
+    summary="Apply Working Schedule To Days",
+    description=(
+        "Copies an already-configured day's working-schedule "
+        "slots (e.g. MONDAY's MORNING/AFTERNOON/EVENING) onto "
+        "other days, so they don't need to be re-entered one "
+        "slot at a time."
+    ),
+    request=WorkingScheduleApplyToDaysSerializer,
+    responses={
+        201: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Working schedule applied to the selected days.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Applied 3 slot(s) from MONDAY to 3 day(s)."
+                        ),
+                        "data": {
+                            "created": [
+                                {
+                                    "employee_working_schedule_uuid": (
+                                        "a1b2c3d4-5678-4abc-9def-0123456789ab"
+                                    ),
+                                    "business_uuid": (
+                                        "b2c3d4e5-6789-4abc-9def-0123456789ab"
+                                    ),
+                                    "owner_uuid": (
+                                        "c3d4e5f6-7890-4abc-9def-0123456789ab"
+                                    ),
+                                    "employee": None,
+                                    "day_of_week": "TUESDAY",
+                                    "slot_type": "MORNING",
+                                    "start_time": "09:00:00",
+                                    "end_time": "13:00:00",
+                                    "is_active": True,
+                                    "created_at": "2026-09-04T09:00:00Z",
+                                    "updated_at": "2026-09-04T09:00:00Z",
+                                }
+                            ],
+                            "skipped": [
+                                {
+                                    "day_of_week": "WEDNESDAY",
+                                    "slot_type": "MORNING",
+                                }
+                            ],
+                        },
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+        400: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Validation error.",
+        ),
+    },
+)
+class EmployeeWorkingScheduleApplyToDaysAPIView(APIView):
+
+    """
+    Copy one day's working-schedule slots onto other days, so the
+    business owner doesn't have to re-enter MORNING/AFTERNOON/EVENING
+    for every day (or every employee's every day) by hand.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    def post(self, request):
+
+        business = get_object_or_404(
+            BusinessProfile,
+            owner=request.user,
+            is_active=True,
+        )
+
+        serializer = WorkingScheduleApplyToDaysSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        employee_uuid = serializer.validated_data.get(
+            "employee_uuid"
+        )
+        source_day_of_week = serializer.validated_data[
+            "source_day_of_week"
+        ]
+        apply_to_all_days = serializer.validated_data[
+            "apply_to_all_days"
+        ]
+        target_days = serializer.validated_data.get(
+            "target_days"
+        ) or []
+
+        # =====================================================
+        # RESOLVE PROVIDER
+        # =====================================================
+        # Mirrors EmployeeWorkingScheduleCreateAPIView's branching:
+        # individual business -> owner is the provider,
+        # company/investor business -> a specific Employee is.
+
+        if business.business_type == BusinessType.INDIVIDUAL:
+
+            if employee_uuid:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Individual business owners cannot "
+                            "assign working schedules to employees. "
+                            "Please upgrade to a Company or "
+                            "Investor business model."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            owner = request.user
+            employee = None
+
+        elif business.business_type in {
+            BusinessType.COMPANY,
+            BusinessType.INVESTOR,
+        }:
+
+            if not employee_uuid:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "employee_uuid is required for "
+                            "Company or Investor businesses."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            employee = get_object_or_404(
+                Employee,
+                employee_uuid=employee_uuid,
+                business=business,
+                is_active=True,
+            )
+
+            owner = None
+
+        else:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid business type.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_filter = (
+            {"owner": owner} if owner else {"employee": employee}
+        )
+
+        # =====================================================
+        # SOURCE DAY SLOTS
+        # =====================================================
+
+        source_schedules = list(
+            EmployeeWorkingSchedule.objects.filter(
+                business=business,
+                day_of_week=source_day_of_week,
+                is_active=True,
+                **provider_filter,
+            )
+        )
+
+        if not source_schedules:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "No active schedule found for "
+                        f"{source_day_of_week}. Add slots for "
+                        "that day first, then apply it to "
+                        "other days."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =====================================================
+        # TARGET DAYS
+        # =====================================================
+
+        if apply_to_all_days:
+            target_days = [
+                day
+                for day, _ in DayOfWeek.choices
+                if day != source_day_of_week
+            ]
+
+        # =====================================================
+        # COPY SLOTS
+        # =====================================================
+
+        created_schedules = []
+        skipped = []
+
+        with transaction.atomic():
+            for target_day in target_days:
+                for source_schedule in source_schedules:
+
+                    already_exists = (
+                        EmployeeWorkingSchedule.objects.filter(
+                            business=business,
+                            day_of_week=target_day,
+                            slot_type=source_schedule.slot_type,
+                            is_active=True,
+                            **provider_filter,
+                        ).exists()
+                    )
+
+                    if already_exists:
+                        skipped.append({
+                            "day_of_week": target_day,
+                            "slot_type": source_schedule.slot_type,
+                        })
+                        continue
+
+                    new_schedule = (
+                        EmployeeWorkingSchedule.objects.create(
+                            business=business,
+                            owner=owner,
+                            employee=employee,
+                            day_of_week=target_day,
+                            slot_type=source_schedule.slot_type,
+                            start_time=source_schedule.start_time,
+                            end_time=source_schedule.end_time,
+                            is_active=True,
+                        )
+                    )
+                    created_schedules.append(new_schedule)
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    f"Applied {len(source_schedules)} slot(s) "
+                    f"from {source_day_of_week} to "
+                    f"{len(target_days)} day(s)."
+                ),
+                "data": {
+                    "created": EmployeeWorkingScheduleSerializer(
+                        created_schedules, many=True
+                    ).data,
+                    "skipped": skipped,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
 @extend_schema(
     tags=["Provider Working Schedule"],
     summary="List Provider Working Schedules",
