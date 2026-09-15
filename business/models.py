@@ -44,7 +44,7 @@ class BusinessApplication(TimeStampedModel):
     )
 
     location = models.CharField(
-        
+        max_length=2000, 
     )
 
     category = models.ForeignKey(
