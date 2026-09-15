@@ -409,24 +409,6 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         self._category = category
         return value
 
-    def validate_subCat_uuid(self, value):
-        if value is None:
-            self._subcategory = None
-            return value
-
-        try:
-            subcategory = SubCategory.objects.get(
-                subCat_uuid=value,
-                is_active=True,
-            )
-        except SubCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "Subcategory not found."
-            )
-
-        self._subcategory = subcategory
-        return value
-
     def validate(self, attrs):
         # Validate subcategory belongs to category
         subcategory = getattr(
@@ -453,36 +435,9 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
                 )
             })
 
-        # Validate unit belongs to service type.
-        # Falls back to the instance's current value
-        # when only one of the two is being changed.
-        instance = getattr(self, "instance", None)
-
-        service_type = getattr(
-            self,
-            "_service_type",
-            instance.service_type if instance else None,
-        )
-
-        unit = getattr(
-            self,
-            "_unit",
-            instance.unit if instance else None,
-        )
-
-        if (
-            service_type
-            and unit
-            and unit.service_type_id != service_type.id
-        ):
-            raise serializers.ValidationError({
-                "unit_uuid": (
-                    "Unit does not belong to the "
-                    "selected service type."
-                )
-            })
-
         return attrs
+
+
 
     def update(self, instance, validated_data):
         if "cat_uuid" in validated_data:

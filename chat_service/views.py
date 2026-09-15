@@ -1,4 +1,5 @@
 from rest_framework import viewsets, mixins, status
+from rest_framework.generics import get_object_or_404
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -42,10 +43,12 @@ class ConversationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     """
     Manage chat conversations.
     Users can only access conversations they are part of.
+    A conversation is looked up by the UUID of its linked
+    booking (scheduled or instant), not its own conversation_uuid.
     """
     serializer_class = ConversationSerializer
     permission_classes = [IsAuthenticated, IsConversationParticipant]
-    lookup_field = "conversation_uuid"
+    lookup_url_kwarg = "booking_uuid"
 
     def get_queryset(self):
         user = self.request.user
@@ -56,14 +59,26 @@ class ConversationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             (Q(employee__isnull=False) & Q(employee__business__owner=user))
         ).distinct()
 
+    def get_object(self):
+        from django.db.models import Q
+        booking_uuid = self.kwargs["booking_uuid"]
+        queryset = self.filter_queryset(self.get_queryset())
+        conversation = get_object_or_404(
+            queryset,
+            Q(scheduled_booking__uuid=booking_uuid) |
+            Q(instant_booking__instant_booking_uuid=booking_uuid)
+        )
+        self.check_object_permissions(self.request, conversation)
+        return conversation
+
     @extend_schema(
         summary="Close conversation",
-        tags=["Chat - Conversations"],
+        tags=["Chat - Service"],
         request=None,
         responses={200: ConversationSerializer}
     )
     @action(detail=True, methods=["patch"])
-    def close(self, request, conversation_uuid=None):
+    def close(self, request, booking_uuid=None):
         conversation = self.get_object()
         if conversation.status == ConversationStatus.ARCHIVED:
             return Response({"detail": "Cannot close an archived conversation."}, status=status.HTTP_400_BAD_REQUEST)
@@ -76,12 +91,12 @@ class ConversationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
     @extend_schema(
         summary="Archive conversation",
-        tags=["Chat - Conversations"],
+        tags=["Chat - Service"],
         request=None,
         responses={200: ConversationSerializer}
     )
     @action(detail=True, methods=["patch"])
-    def archive(self, request, conversation_uuid=None):
+    def archive(self, request, booking_uuid=None):
         conversation = self.get_object()
         if conversation.status == ConversationStatus.CLOSED:
             return Response({"detail": "Cannot archive a closed conversation."}, status=status.HTTP_400_BAD_REQUEST)
@@ -99,26 +114,26 @@ class ConversationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         responses={200: OpenApiResponse(description="Messages marked as read")}
     )
     @action(detail=True, methods=["post"])
-    def read(self, request, conversation_uuid=None):
+    def read(self, request, booking_uuid=None):
         conversation = self.get_object()
         count = ChatService.mark_conversation_read(conversation, request.user)
         return Response({"success": True, "marked_read": count})
 
     @extend_schema(
         summary="List messages in a conversation",
-        tags=["Chat - Messages"],
+        tags=["Chat - Service"],
         methods=["GET"],
         responses={200: MessageSerializer(many=True)}
     )
     @extend_schema(
         summary="Send a message",
-        tags=["Chat - Messages"],
+        tags=["Chat - Service"],
         methods=["POST"],
         request=MessageSerializer,
         responses={201: MessageSerializer}
     )
     @action(detail=True, methods=["get", "post"])
-    def messages(self, request, conversation_uuid=None):
+    def messages(self, request, booking_uuid=None):
         conversation = self.get_object()
         if request.method == "GET":
             messages = conversation.messages.filter(deleted_at__isnull=True).order_by("-created_at")
