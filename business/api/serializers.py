@@ -4,7 +4,7 @@ from django.db import IntegrityError, transaction
 from django.urls import reverse
 from rest_framework import serializers
 
-from ..choices import BusinessType, BusinessApplicationStatus
+from ..choices import BusinessType, BusinessApplicationStatus, DayOfWeek
 
 from categories.models import Category
 
@@ -1134,6 +1134,52 @@ class EmployeeWorkingScheduleSerializer(serializers.ModelSerializer):
 
             raise
 
+class WorkingScheduleApplyToDaysSerializer(serializers.Serializer):
+    """
+    Copies an already-configured day's working-schedule slots
+    (e.g. MONDAY's MORNING/AFTERNOON/EVENING) onto other days.
+    """
+
+    employee_uuid = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+    )
+
+    source_day_of_week = serializers.ChoiceField(
+        choices=DayOfWeek.choices,
+    )
+
+    apply_to_all_days = serializers.BooleanField(
+        required=False,
+        default=False,
+    )
+
+    target_days = serializers.ListField(
+        child=serializers.ChoiceField(choices=DayOfWeek.choices),
+        required=False,
+        default=list,
+    )
+
+    def validate(self, attrs):
+        apply_to_all_days = attrs.get("apply_to_all_days", False)
+        target_days = attrs.get("target_days") or []
+        source_day = attrs["source_day_of_week"]
+
+        if not apply_to_all_days and not target_days:
+            raise serializers.ValidationError(
+                "Provide target_days, or set "
+                "apply_to_all_days to true."
+            )
+
+        if source_day in target_days:
+            raise serializers.ValidationError({
+                "target_days": (
+                    "target_days cannot include "
+                    "source_day_of_week."
+                )
+            })
+
+        return attrs
 class BusinessApplicationDocumentsSerializer(
     serializers.Serializer
 ):

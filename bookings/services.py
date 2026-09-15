@@ -919,6 +919,26 @@ class BookingService:
     def start_booking(booking):
         """Business starts the service."""
 
+        from business.services import has_active_service_in_progress
+
+        assigned_employees = [
+            booking_employee.employee
+            for booking_employee in booking.booking_employees.select_related(
+                "employee"
+            )
+        ]
+
+        if has_active_service_in_progress(
+            booking.business,
+            employees=assigned_employees,
+            exclude_booking_uuid=booking.uuid,
+        ):
+            raise ValueError(
+                "The provider for this booking is currently "
+                "handling another service. Please wait until "
+                "it's completed."
+            )
+
         booking = BookingService._transition_status(
             booking,
             [

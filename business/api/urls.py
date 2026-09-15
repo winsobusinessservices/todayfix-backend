@@ -21,6 +21,7 @@ from .views import (
     EmployeeWorkingScheduleUpdateAPIView,
     EmployeeWorkingScheduleListAPIView,
     EmployeeWorkingScheduleCreateAPIView,
+    EmployeeWorkingScheduleApplyToDaysAPIView,
     BusinessApplicationPendingListAPIView,
     BusinessApplicationAcceptedListAPIView,
     BusinessApplicationRejectedListAPIView,
@@ -203,6 +204,12 @@ urlpatterns = [
         "working-schedules/",
         EmployeeWorkingScheduleCreateAPIView.as_view(),
         name="working-schedule-create",
+    ),
+
+    path(
+        "working-schedules/apply-to-days/",
+        EmployeeWorkingScheduleApplyToDaysAPIView.as_view(),
+        name="working-schedule-apply-to-days",
     ),
 
     path(
