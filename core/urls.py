@@ -34,6 +34,7 @@ urlpatterns = [
     path("api/chat/", include("chat_service.urls")),
     path("api/calling/", include("calling_service.urls")),
     path("api/notifications/", include("notifications.urls")),
+    path("api/reviews/", include("reviews.api.urls")),
 
     
 
