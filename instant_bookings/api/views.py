@@ -293,6 +293,18 @@ class InstantBookingCreateAPIView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        if not request.user.phone:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Please add a phone number to your account "
+                        "before booking a service."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = InstantBookingCreateSerializer(
             data=request.data,
             context={"request": request},
@@ -407,7 +419,7 @@ class InstantBookingCreateAPIView(APIView):
             notified_business_ids.add(offer.business_id)
             NotificationService.create(
                 recipient=offer.business.owner,
-                notification_type=NotificationType.INSTANT_BOOKING_CREATED,
+                notification_type=NotificationType.INSTANT_BOOKING_OFFER,
                 title="New Instant Booking Request",
                 message=f"New instant booking request for {booking.requested_service_name}.",
                 data={"booking_id": str(booking.instant_booking_uuid)}

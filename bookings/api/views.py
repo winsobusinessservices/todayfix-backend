@@ -251,6 +251,18 @@ class UserBookingCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
+        if not request.user.phone:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Please add a phone number to your account "
+                        "before booking a service."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = BookingCreateSerializer(
             data=request.data
         )

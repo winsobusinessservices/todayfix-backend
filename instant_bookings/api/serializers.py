@@ -321,6 +321,30 @@ class BusinessInstantBookingAcceptedSerializer(
         read_only=True,
     )
 
+    customer_phone = serializers.CharField(
+        source="customer.phone",
+        read_only=True,
+        allow_null=True,
+    )
+
+    location = serializers.CharField(
+        source="address.location",
+        read_only=True,
+        allow_null=True,
+    )
+
+    address = serializers.SerializerMethodField()
+
+    def get_address(self, obj):
+        parts = [
+            obj.address.address_line,
+            obj.address.locality,
+            obj.address.city,
+            obj.address.state,
+            obj.address.pincode,
+        ]
+        return ", ".join(part for part in parts if part)
+
     employee_uuid = serializers.UUIDField(
         source="assigned_employee.employee_uuid",
         read_only=True,
@@ -341,6 +365,9 @@ class BusinessInstantBookingAcceptedSerializer(
             "category_name",
             "subcategory_name",
             "address_uuid",
+            "customer_phone",
+            "address",
+            "location",
             "requested_service_name",
             "customer_note",
             "quoted_price",
