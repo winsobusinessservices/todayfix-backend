@@ -315,3 +315,14 @@ class BookingHistorySerializer(serializers.Serializer):
         if isinstance(obj, InstantBooking):
             return obj.customer_note
         return obj.notes
+
+class BookingCompletionOTPVerifySerializer(serializers.Serializer):
+    """
+    Input for verifying the OTP that confirms a service is
+    actually complete.
+    """
+
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6,
+    )

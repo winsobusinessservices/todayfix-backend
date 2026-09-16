@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 
 from instant_bookings.api.serializers import (
     BusinessInstantBookingAcceptedSerializer,
+    InstantBookingCompleteVerifySerializer,
     InstantBookingCreateSerializer,
     InstantBookingOfferReadSerializer,
     InstantBookingReadSerializer,
@@ -1110,9 +1111,15 @@ class BusinessInstantBookingStartAPIView(APIView):
             ],
         )
     },)
+
 class BusinessInstantBookingCompleteAPIView(APIView):
     """
-    Assigned business owner marks a booking as completed.
+    Assigned business owner marks the service as done.
+
+    This does NOT complete the booking yet - it emails an OTP to
+    the customer. The booking only moves to COMPLETED once the
+    provider submits that OTP via
+    BusinessInstantBookingCompleteVerifyAPIView.
     """
 
     permission_classes = [IsAuthenticated]
@@ -1144,9 +1151,97 @@ class BusinessInstantBookingCompleteAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from bookings.otp_service import BookingCompletionOTPService
+
+        if BookingCompletionOTPService.has_active_otp(instant_booking=booking):
+            message = (
+                "An OTP has already been sent to the customer's "
+                "email. Please ask them for it to complete the "
+                "service."
+            )
+        else:
+            BookingCompletionOTPService.send_otp(instant_booking=booking)
+            message = (
+                "An OTP has been sent to the customer's email. Ask "
+                "them for it and submit it to complete the service."
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": booking_response_data(booking),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Instant Bookings"],
+    summary="Verify Instant Service Completion OTP",
+    description=(
+        "Business submits the OTP the customer received by email "
+        "to confirm the instant service is actually complete. On "
+        "success the booking moves from IN_PROGRESS to COMPLETED."
+    ),
+    request=InstantBookingCompleteVerifySerializer,
+)
+class BusinessInstantBookingCompleteVerifyAPIView(APIView):
+    """
+    Assigned business owner submits the OTP the customer received
+    by email to confirm the service is actually complete.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, instant_booking_uuid):
+        booking = get_object_or_404(
+            InstantBooking.objects.select_related("assigned_business"),
+            instant_booking_uuid=instant_booking_uuid,
+        )
+
+        if (
+            not booking.assigned_business
+            or booking.assigned_business.owner != request.user
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "You are not assigned to this booking.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if booking.status != InstantBookingStatus.IN_PROGRESS:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only an in-progress booking can be completed.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = InstantBookingCompleteVerifySerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+        otp = serializer.validated_data["otp"]
+
+        from bookings.otp_service import BookingCompletionOTPService
+
+        verified, message = BookingCompletionOTPService.verify_otp(
+            otp, instant_booking=booking
+        )
+
+        if not verified:
+            return Response(
+                {"success": False, "message": message},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         booking.status = InstantBookingStatus.COMPLETED
         booking.save(update_fields=["status", "updated_at"])
-        
+
         from notifications.services import NotificationService
         from notifications.choices import NotificationType
         NotificationService.create(
@@ -1165,7 +1260,6 @@ class BusinessInstantBookingCompleteAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 @extend_schema(
     tags=["Instant Bookings"],

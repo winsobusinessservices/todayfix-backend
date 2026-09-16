@@ -17,10 +17,13 @@ from business.models import (
     EmployeeWorkingSchedule,
     ProviderAvailability,
 )
-
+from rapidfuzz import fuzz
 from instant_bookings.models import (
     InstantBookingPricingRule,
 )
+
+from services.models import Service, ServiceEmployee
+from services.search_utils import expand_search_words
 
 from instant_bookings.utils.geo import (
     calculate_distance_km,
@@ -47,6 +50,177 @@ class InstantBookingQuoteService:
 
     FREE_TRAVEL_DISTANCE_KM = Decimal("5.00")
     PROVIDER_SPEED_KMH = 30
+    FUZZY_MATCH_THRESHOLD = 70
+    MINIMUM_MATCHING_WORD_LENGTH = 3
+
+    @staticmethod
+    def _normalize_search_text(value):
+        """
+        Normalize service text for matching.
+
+        Keeps the matching case-insensitive and removes punctuation
+        differences so searches such as:
+
+            AC-installation
+            AC installation
+            ac installation
+
+        are treated consistently.
+        """
+        value = (value or "").strip().lower()
+
+        normalized = []
+
+        for character in value:
+            if character.isalnum() or character.isspace():
+                normalized.append(character)
+            else:
+                normalized.append(" ")
+
+        return " ".join(
+            "".join(normalized).split()
+        )
+
+    @classmethod
+    def _service_matches_search(
+        cls,
+        requested_service_name,
+        service,
+    ):
+        """
+        Determine whether a provider service is relevant to the
+        customer's requested service.
+
+        Matching layers:
+
+        1. Exact/substring phrase matching.
+        2. Word matching.
+        3. WordNet/manual synonym matching.
+        4. Typo-tolerant fuzzy matching.
+        5. Matching against both service name and description.
+
+        The existing fuzzy threshold of 70 is retained.
+        """
+
+        requested_text = cls._normalize_search_text(
+            requested_service_name
+        )
+
+        if not requested_text:
+            return False
+
+        service_name = cls._normalize_search_text(
+            service.name
+        )
+
+        service_description = cls._normalize_search_text(
+            service.description
+        )
+
+        searchable_text = " ".join(
+            part
+            for part in (
+                service_name,
+                service_description,
+            )
+            if part
+        )
+
+        if not searchable_text:
+            return False
+
+        # ---------------------------------------------------------
+        # 1. Exact / phrase matching
+        # ---------------------------------------------------------
+        if requested_text in searchable_text:
+            return True
+
+        # ---------------------------------------------------------
+        # 2. Expand the customer's search words using the SAME
+        #    synonym system used by the normal service search.
+        #
+        #    This includes:
+        #      - WordNet synonyms
+        #      - admin-managed SearchSynonym pairs
+        # ---------------------------------------------------------
+        requested_words = requested_text.split()
+
+        expanded_words = expand_search_words(
+            requested_words
+        )
+
+        normalized_expanded_words = {
+            cls._normalize_search_text(word)
+            for word in expanded_words
+            if word
+        }
+
+        normalized_expanded_words.discard("")
+
+        # ---------------------------------------------------------
+        # 3. Direct word matching.
+        #
+        #    We intentionally require meaningful words rather than
+        #    allowing a short generic token such as "ac" by itself
+        #    to match every AC-related service.
+        # ---------------------------------------------------------
+        service_words = set(
+            searchable_text.split()
+        )
+
+        meaningful_requested_words = {
+            word
+            for word in normalized_expanded_words
+            if len(word) >= cls.MINIMUM_MATCHING_WORD_LENGTH
+        }
+
+        for word in meaningful_requested_words:
+            if word in service_words:
+                return True
+
+        # ---------------------------------------------------------
+        # 4. Fuzzy matching.
+        #
+        #    This handles spelling mistakes such as:
+        #
+        #        instalation -> installation
+        #        maintanance -> maintenance
+        #
+        #    We compare every meaningful search term against the
+        #    individual words in the provider's name/description.
+        # ---------------------------------------------------------
+        service_word_list = list(
+            service_words
+        )
+
+        for search_word in meaningful_requested_words:
+            for service_word in service_word_list:
+                if fuzz.ratio(
+                    search_word,
+                    service_word,
+                ) >= cls.FUZZY_MATCH_THRESHOLD:
+                    return True
+
+        # ---------------------------------------------------------
+        # 5. Fuzzy phrase matching.
+        #
+        #    Useful when the customer enters a phrase and the
+        #    provider uses a slightly different phrase/order.
+        # ---------------------------------------------------------
+        for search_term in {
+            requested_text,
+            *normalized_expanded_words,
+        }:
+            if not search_term:
+                continue
+
+            if fuzz.partial_ratio(
+                search_term,
+                searchable_text,
+            ) >= cls.FUZZY_MATCH_THRESHOLD:
+                return True
+
+        return False
 
     @classmethod
     def get_quote(cls, booking):
@@ -64,9 +238,12 @@ class InstantBookingQuoteService:
             )
         )
 
+        requested_service_name = (
+            booking.requested_service_name or ""
+        ).strip()
+
         matching_services = (
             Service.objects.filter(
-                name__iexact=booking.requested_service_name,
                 is_active=True,
                 business__is_active=True,
             )
@@ -79,6 +256,21 @@ class InstantBookingQuoteService:
             .prefetch_related(
                 "employee_assignments__employee",
             )
+        )
+
+        matching_service_ids = []
+
+        for service in matching_services:
+            if cls._service_matches_search(
+                requested_service_name=requested_service_name,
+                service=service,
+            ):
+                matching_service_ids.append(
+                    service.id
+                )
+
+        matching_services = matching_services.filter(
+            id__in=matching_service_ids,
         )
 
         provider_found_within_distance = False
@@ -327,7 +519,7 @@ class InstantBookingQuoteService:
         This does not affect customer price.
         """
         return max(
-            1,
+            60,
             math.ceil(
                 float(distance_km)
                 / cls.PROVIDER_SPEED_KMH
@@ -453,6 +645,16 @@ class InstantBookingQuoteService:
         """
         Confirm that the provider is working now and has enough
         working time remaining for travel plus service duration.
+
+        A provider's day can be split across several slots
+        (MORNING, AFTERNOON, EVENING). If the slot containing
+        "now" doesn't have enough time left on its own, but the
+        next slot starts exactly where it ends (no gap), that
+        slot is treated as a continuation of the same working
+        window - e.g. MORNING 8-12 followed immediately by
+        AFTERNOON 12-16 lets an instant booking that needs until
+        1pm through, instead of being rejected just because it
+        crosses the MORNING/AFTERNOON boundary.
         """
         now = timezone.localtime()
         current_day = now.strftime("%A").upper()
@@ -469,21 +671,32 @@ class InstantBookingQuoteService:
         else:
             schedule_filter["owner"] = owner
 
-        schedules = EmployeeWorkingSchedule.objects.filter(
-            **schedule_filter
-        ).order_by("start_time")
+        schedules = list(
+            EmployeeWorkingSchedule.objects.filter(
+                **schedule_filter
+            ).order_by("start_time")
+        )
 
-        schedule = next(
+        current_index = next(
             (
-                item
-                for item in schedules
+                index
+                for index, item in enumerate(schedules)
                 if item.start_time <= current_time < item.end_time
             ),
             None,
         )
 
-        if not schedule:
+        if current_index is None:
             return False
+
+        # Extend the window through any immediately-following
+        # slots (no gap between them).
+        window_end = schedules[current_index].end_time
+
+        for schedule in schedules[current_index + 1:]:
+            if schedule.start_time != window_end:
+                break
+            window_end = schedule.end_time
 
         required_end = (
             datetime.combine(
@@ -493,10 +706,7 @@ class InstantBookingQuoteService:
             + timedelta(minutes=required_minutes)
         ).time()
 
-        return (
-            schedule.start_time <= current_time
-            and required_end <= schedule.end_time
-        )
+        return required_end <= window_end
 
     @staticmethod
     def _has_scheduled_conflict(

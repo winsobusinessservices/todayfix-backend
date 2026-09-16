@@ -16,6 +16,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django.db.models import Q
+from django.db.models.expressions import RawSQL
+from rapidfuzz import fuzz
+from services.search_utils import expand_search_words
 
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -478,6 +481,12 @@ class ServiceRankUpdateAPIView(APIView):
 # SEARCH / FILTER SERVICES (public)
 # =============================================================
 
+# Minimum rapidfuzz similarity score (0-100) for a service name to
+# be considered a typo-tolerant match when no direct/FULLTEXT/
+# synonym match is found.
+FUZZY_MATCH_THRESHOLD = 70
+
+
 @extend_schema(
     auth=[],
     tags=["Services"],
@@ -682,10 +691,57 @@ class ServiceSearchAPIView(ListAPIView):
         # Keyword search
         search = params.get("search")
         if search:
-            qs = qs.filter(
-                Q(name__icontains=search)
-                | Q(description__icontains=search)
+            search = search.strip()
+            words = search.split()
+            expanded_words = expand_search_words(words)
+            all_terms = {search} | expanded_words
+
+            # Substring match on the original phrase plus any
+            # WordNet/manual synonym expansions. Also covers short
+            # terms (< 3 chars) that MySQL FULLTEXT won't index.
+            substring_q = Q()
+            for term in all_terms:
+                substring_q |= (
+                    Q(name__icontains=term)
+                    | Q(description__icontains=term)
+                )
+
+            # MySQL FULLTEXT relevance match (replaces Postgres
+            # SearchVector/SearchQuery) for multi-word "few words
+            # match" behavior.
+            # Columns must be table-qualified: qs joins business/
+            # category/subcategory via select_related, and those
+            # tables also have a "name" column, so a bare "name"
+            # here is ambiguous to MySQL.
+            fulltext_matches = qs.annotate(
+                _relevance=RawSQL(
+                    "MATCH(services_service.name, services_service.description) "
+                    "AGAINST (%s IN NATURAL LANGUAGE MODE)",
+                    (search,),
+                )
+            ).filter(_relevance__gt=0)
+
+            matched_ids = set(
+                qs.filter(substring_q).values_list("id", flat=True)
+            ) | set(
+                fulltext_matches.values_list("id", flat=True)
             )
+
+            if matched_ids:
+                qs = qs.filter(id__in=matched_ids)
+            else:
+                # Nothing matched directly — fall back to
+                # typo-tolerant fuzzy matching on service names.
+                fuzzy_ids = [
+                    service_id
+                    for service_id, name in qs.values_list(
+                        "id", "name"
+                    )
+                    if fuzz.partial_ratio(
+                        search.lower(), name.lower()
+                    ) >= FUZZY_MATCH_THRESHOLD
+                ]
+                qs = qs.filter(id__in=fuzzy_ids)
 
         return qs
 

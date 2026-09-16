@@ -11,6 +11,7 @@ from .views import (
     BusinessBookingRejectAPIView,
     BusinessBookingStartAPIView,
     BusinessBookingCompleteAPIView,
+    BusinessBookingCompleteVerifyAPIView,
     BookingSlotAvailabilityAPIView,
     BusinessBookingAssignEmployeeAPIView,
     BusinessBookingReassignEmployeeAPIView,
@@ -104,5 +105,11 @@ urlpatterns = [
         "business/<uuid:uuid>/reassign-employee/",
         BusinessBookingReassignEmployeeAPIView.as_view(),
         name="business-booking-reassign-employee",
+    ),
+
+    path(
+        "business/<uuid:uuid>/complete/verify/",
+        BusinessBookingCompleteVerifyAPIView.as_view(),
+        name="business-booking-complete-verify"
     ),
 ]

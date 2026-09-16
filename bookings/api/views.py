@@ -35,6 +35,7 @@ from .serializers import (
     BookingEmployeeAssignSerializer,
     BookingEmployeeReassignSerializer,
     BookingHistorySerializer,
+    BookingCompletionOTPVerifySerializer,
 )
 
 from django.db import IntegrityError, transaction
@@ -1876,6 +1877,111 @@ class BusinessBookingStartAPIView(BaseBusinessTransitionAPIView):
         ),
     },
 )
+
 class BusinessBookingCompleteAPIView(BaseBusinessTransitionAPIView):
-    def perform_transition(self, booking):
-        return BookingService.complete_booking(booking)
+    """
+    Business marks an in-progress booking's service as done.
+
+    This does NOT complete the booking yet - it emails an OTP to
+    the customer. The booking only moves to COMPLETED once the
+    provider submits that OTP via
+    BusinessBookingCompleteVerifyAPIView.
+    """
+
+    def post(self, request, uuid):
+        booking = self.get_object()
+
+        if booking.status != BookingStatus.IN_PROGRESS:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Only in-progress bookings can be completed."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from bookings.otp_service import BookingCompletionOTPService
+
+        if BookingCompletionOTPService.has_active_otp(booking=booking):
+            message = (
+                "An OTP has already been sent to the customer's "
+                "email. Please ask them for it to complete the "
+                "service."
+            )
+        else:
+            BookingCompletionOTPService.send_otp(booking=booking)
+            message = (
+                "An OTP has been sent to the customer's email. Ask "
+                "them for it and submit it to complete the service."
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": BookingReadSerializer(booking).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Scheduled Bookings"],
+    summary="Verify Service Completion OTP",
+    description=(
+        "Business submits the OTP the customer received by email "
+        "to confirm the service is actually complete. On success "
+        "the booking moves from IN_PROGRESS to COMPLETED."
+    ),
+    request=BookingCompletionOTPVerifySerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Booking completed successfully.",
+        ),
+    },
+)
+class BusinessBookingCompleteVerifyAPIView(BaseBusinessTransitionAPIView):
+    def post(self, request, uuid):
+        booking = self.get_object()
+
+        if booking.status != BookingStatus.IN_PROGRESS:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Only in-progress bookings can be completed."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = BookingCompletionOTPVerifySerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+        otp = serializer.validated_data["otp"]
+
+        from bookings.otp_service import BookingCompletionOTPService
+
+        verified, message = BookingCompletionOTPService.verify_otp(
+            otp, booking=booking
+        )
+        if not verified:
+            return Response(
+                {"success": False, "message": message},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking = BookingService.complete_booking(booking)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Booking completed successfully.",
+                "data": BookingReadSerializer(booking).data,
+            },
+            status=status.HTTP_200_OK,
+        )

@@ -5,6 +5,7 @@ from instant_bookings.models import (
     InstantBooking,
     InstantBookingOffer,
 )
+from instant_bookings.services import InstantBookingQuoteService
 from services.models import Service
 
 
@@ -52,13 +53,23 @@ class InstantBookingCreateSerializer(serializers.Serializer):
                 "Service name is required."
             )
 
-        # Prevent creating a booking for a service that
-        # no active business currently provides.
-        service_exists = Service.objects.filter(
-            name__iexact=value,
+        # Prevent creating a booking for a service that no active
+        # business currently provides. Uses the same matching logic
+        # (substring + synonym + word + fuzzy) as get_quote(), so a
+        # request that passes this check is guaranteed to also be
+        # matchable when the quote is actually computed.
+        active_services = Service.objects.filter(
             is_active=True,
             business__is_active=True,
-        ).exists()
+        )
+
+        service_exists = any(
+            InstantBookingQuoteService._service_matches_search(
+                requested_service_name=value,
+                service=service,
+            )
+            for service in active_services
+        )
 
         if not service_exists:
             raise serializers.ValidationError(
@@ -381,3 +392,14 @@ class BusinessInstantBookingAcceptedSerializer(
         ]
 
         read_only_fields = fields
+
+class InstantBookingCompleteVerifySerializer(serializers.Serializer):
+    """
+    Input for verifying the OTP that confirms an instant service
+    is actually complete.
+    """
+
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6,
+    )

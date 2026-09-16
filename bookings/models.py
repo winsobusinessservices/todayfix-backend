@@ -117,3 +117,79 @@ class BookingEmployee(TimeStampedModel):
             f"{self.booking.uuid} - "
             f"{self.employee.name}"
         )
+
+class BookingCompletionOTP(TimeStampedModel):
+    """
+    One-time passcode emailed to the customer when the provider
+    marks a scheduled or instant booking as complete. The booking
+    only moves to COMPLETED once this OTP is verified.
+
+    Exactly one of `booking` / `instant_booking` is set.
+    """
+
+    otp_verification_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="completion_otps",
+        null=True,
+        blank=True,
+    )
+
+    instant_booking = models.ForeignKey(
+        "instant_bookings.InstantBooking",
+        on_delete=models.CASCADE,
+        related_name="completion_otps",
+        null=True,
+        blank=True,
+    )
+
+    otp_hash = models.CharField(
+        max_length=128,
+    )
+
+    expires_at = models.DateTimeField()
+
+    attempts = models.PositiveIntegerField(
+        default=0,
+    )
+
+    is_used = models.BooleanField(
+        default=False,
+    )
+
+    is_verified = models.BooleanField(
+        default=False,
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+        indexes = [
+            models.Index(fields=["booking", "is_used"]),
+            models.Index(fields=["instant_booking", "is_used"]),
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(booking__isnull=False, instant_booking__isnull=True)
+                    | models.Q(booking__isnull=True, instant_booking__isnull=False)
+                ),
+                name="completion_otp_exactly_one_booking_type",
+            ),
+        ]
+
+    def __str__(self):
+        target = self.booking or self.instant_booking
+        return f"Completion OTP for {target}"
