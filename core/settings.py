@@ -389,6 +389,11 @@ SPECTACULAR_SETTINGS = {
             "description":
                 "Instant booking management.",
         },
+        {
+            "name": "Reviews",
+            "description":
+                "Business and service review management.",
+        },
     ],
 
     "SECURITY": [

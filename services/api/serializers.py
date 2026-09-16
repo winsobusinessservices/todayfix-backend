@@ -409,6 +409,22 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
         self._category = category
         return value
 
+    def validate_subCat_uuid(self, value):
+        if value is None:
+            return value
+
+        try:
+            subcategory = SubCategory.objects.get(
+                subCat_uuid=value,
+                is_active=True,
+            )
+        except SubCategory.DoesNotExist:
+            raise serializers.ValidationError(
+                "Subcategory not found."
+            )
+        self._subcategory = subcategory
+        return value
+
     def validate(self, attrs):
         # Validate subcategory belongs to category
         subcategory = getattr(
