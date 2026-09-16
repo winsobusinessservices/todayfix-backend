@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    BusinessInstantBookingCompleteVerifyAPIView,
     BusinessInstantBookingOfferAcceptAPIView,
     BusinessInstantBookingOffersAPIView,
     BusinessInstantBookingCompleteAPIView,
@@ -9,7 +10,8 @@ from .views import (
     CustomerInstantBookingDetailAPIView,
     InstantBookingCreateAPIView,
     InstantServiceSearchAPIView,
-    CustomerInstantBookingRetryAPIView
+    CustomerInstantBookingRetryAPIView,
+    BusinessInstantBookingCompleteVerifyAPIView
 )
 from .views import (
     BusinessInstantBookingAcceptedListAPIView,
@@ -22,6 +24,7 @@ from .views import (
     InstantBookingCreateAPIView,
     InstantServiceSearchAPIView,
     CustomerInstantBookingRetryAPIView
+    
 )
 
 urlpatterns = [
@@ -82,6 +85,12 @@ urlpatterns = [
         "<uuid:instant_booking_uuid>/start/",
         BusinessInstantBookingStartAPIView.as_view(),
         name="business-instant-booking-start",
+    ),
+
+    path(
+        "<uuid:instant_booking_uuid>/complete/verify/",
+        BusinessInstantBookingCompleteVerifyAPIView.as_view(),
+        name="business-instant-booking-complete-verify",
     ),
 
     # Assigned provider completes the service.

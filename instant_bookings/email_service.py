@@ -10,6 +10,7 @@ def send_instant_booking_email(
     template_name,
     placeholders,
     recipient=None,
+    otp=None,
 ):
     """
     Fetches an EmailTemplate by name, fills in the placeholders,
@@ -43,7 +44,7 @@ def send_instant_booking_email(
             "logo_url": settings.EMAIL_LOGO_URL,
             "first_name": recipient.first_name,
             "message": message,
-            "otp": "",
+            "otp": otp or "",
             "additional_message": "",
         },
     )
