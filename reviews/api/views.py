@@ -11,12 +11,13 @@ from reviews.serializers import ReviewSerializer, ReviewCreateSerializer, Review
 from rest_framework.pagination import PageNumberPagination
 import uuid
 from rest_framework.parsers import MultiPartParser, FormParser
-
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 class ReviewCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
+        tags=["Reviews"],
         request={
             "multipart/form-data": {
                 "type": "object",
@@ -44,7 +45,7 @@ class ReviewCreateAPIView(APIView):
 
 class MyReviewsAPIView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(tags=["Reviews"])
     def get(self, request):
         reviews = Review.objects.filter(customer=request.user)
         paginator = PageNumberPagination()
@@ -60,7 +61,7 @@ class MyReviewsAPIView(APIView):
 
 class RatingSummaryAPIView(APIView):
     @extend_schema(
-        tags=["reviews"],
+        tags=["Reviews"],
         summary="Get rating summary",
         description="Returns average rating, total review count, and rating distribution for a business or a service. Provide exactly one of business_uuid or service_uuid.",
         parameters=[
@@ -126,13 +127,14 @@ class RatingSummaryAPIView(APIView):
         })
 
 class ReviewDetailAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
     def get(self, request, review_uuid):
         review = get_object_or_404(Review, review_uuid=review_uuid)
         serializer = ReviewSerializer(review)
         return Response({"success": True, "data": serializer.data})
         
 
-
+    @extend_schema(tags=["Reviews"])
     def delete(self, request, review_uuid):
         review = get_object_or_404(Review, review_uuid=review_uuid)
         if review.customer != request.user:
@@ -141,6 +143,7 @@ class ReviewDetailAPIView(APIView):
         return Response({"success": True, "message": "Review deleted."})
 
 class ReviewImageDeleteAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
     def delete(self, request, review_uuid, image_uuid):
         review = get_object_or_404(Review, review_uuid=review_uuid)
         if review.customer != request.user:
@@ -150,6 +153,7 @@ class ReviewImageDeleteAPIView(APIView):
         return Response({"success": True, "message": "Image deleted."})
 
 class ReviewByBookingAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
     def get(self, request, booking_uuid):
         review = get_object_or_404(Review, booking__uuid=booking_uuid)
         serializer = ReviewSerializer(review)
@@ -157,6 +161,7 @@ class ReviewByBookingAPIView(APIView):
 
 class ReviewEligibilityAPIView(APIView):
     permission_classes = [IsAuthenticated]
+    @extend_schema(tags=["Reviews"])
     def get(self, request, booking_uuid):
         booking = get_object_or_404(Booking, uuid=booking_uuid)
         if booking.user != request.user:
@@ -171,6 +176,7 @@ class ReviewEligibilityAPIView(APIView):
         return Response({"success": True, "data": {"eligible": True, "already_reviewed": False}})
 
 class BusinessReviewsAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
     def get(self, request, business_uuid):
         rating = request.query_params.get("rating")
         reviews = Review.objects.filter(business__business_profile_uuid=business_uuid)
@@ -180,6 +186,7 @@ class BusinessReviewsAPIView(APIView):
         return Response({"success": True, "data": serializer.data})
 
 class ServiceReviewsAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
     def get(self, request, service_uuid):
         rating = request.query_params.get("rating")
         reviews = Review.objects.filter(service__service_uuid=service_uuid)
