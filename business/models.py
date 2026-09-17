@@ -1334,3 +1334,122 @@ class BusinessUpgradeBankAccount(TimeStampedModel):
             f"Upgrade Bank Account - "
             f"{self.request.business_upgrade_request_uuid}"
         )
+
+#======================================================================================================
+#                                       Business Portfolio Model
+#======================================================================================================
+
+from .choices import ResponseTime
+
+
+class BusinessPortfolio(TimeStampedModel):
+    """
+    Extra display information for a BusinessProfile, shown on the
+    public business portfolio page. Services, employees, bookings
+    and reviews are NOT duplicated here — they are read live from
+    their own apps.
+    """
+
+    business_portfolio_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    business = models.OneToOneField(
+        BusinessProfile,
+        on_delete=models.CASCADE,
+        related_name="portfolio",
+    )
+
+    established_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    starting_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+
+    response_time = models.CharField(
+        max_length=20,
+        choices=ResponseTime.choices,
+        blank=True,
+        default="",
+    )
+
+    facebook_url = models.URLField(blank=True, default="")
+    instagram_url = models.URLField(blank=True, default="")
+    twitter_url = models.URLField(blank=True, default="")
+    linkedin_url = models.URLField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Portfolio - {self.business.name}"
+
+
+class BusinessPortfolioGalleryImage(TimeStampedModel):
+
+    gallery_image_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    portfolio = models.ForeignKey(
+        BusinessPortfolio,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+    )
+
+    image = models.ImageField(
+        upload_to="business_portfolio/gallery/",
+    )
+
+    caption = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Gallery image - {self.portfolio.business.name}"
+
+
+class BusinessPortfolioFAQ(TimeStampedModel):
+
+    faq_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    portfolio = models.ForeignKey(
+        BusinessPortfolio,
+        on_delete=models.CASCADE,
+        related_name="faqs",
+    )
+
+    question = models.CharField(max_length=255)
+
+    answer = models.TextField()
+
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "created_at"]
+
+    def __str__(self):
+        return f"FAQ - {self.question[:40]}"
+    

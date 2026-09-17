@@ -33,4 +33,9 @@ class DayOfWeek(models.TextChoices):
     SATURDAY = "SATURDAY", _("Saturday")
     SUNDAY = "SUNDAY", _("Sunday")
 
+class ResponseTime(models.TextChoices):
+    WITHIN_AN_HOUR = "WITHIN_AN_HOUR", _("Within an hour")
+    WITHIN_A_FEW_HOURS = "WITHIN_A_FEW_HOURS", _("Within a few hours")
+    WITHIN_A_DAY = "WITHIN_A_DAY", _("Within a day")
+    MORE_THAN_A_DAY = "MORE_THAN_A_DAY", _("More than a day")
     

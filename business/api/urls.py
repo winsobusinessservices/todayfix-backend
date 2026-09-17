@@ -33,8 +33,13 @@ from .views import (
     BusinessUpgradeRequestDocumentsAPIView,
     BusinessUpgradeRequestDocumentViewAPIView,
     AdminApproveBusinessUpgradeRequestAPIView,
-    AdminBusinessUpgradeRequestListAPIView
-
+    AdminBusinessUpgradeRequestListAPIView,
+    PublicBusinessProfileListAPIView,
+    BusinessPortfolioCreateAPIView,
+    BusinessPortfolioPublicRetrieveAPIView,
+    BusinessPortfolioUpdateAPIView,
+    BusinessPortfolioGalleryImageDeleteAPIView,
+    BusinessPortfolioFAQDeleteAPIView,
 )
 
 
@@ -177,6 +182,11 @@ urlpatterns = [
         name="employee-delete",
     ),
 
+    path(
+        "profiles/public/<subCat_uuid>/s",
+        PublicBusinessProfileListAPIView.as_view(),
+        name="public-business-profile-list",
+    ),
 
     # =====================================================
     # PROVIDER AVAILABILITY
@@ -266,6 +276,40 @@ urlpatterns = [
         "admin/upgrade-requests/<uuid:business_upgrade_request_uuid>/reject/",
         AdminRejectBusinessUpgradeRequestAPIView.as_view(),
         name="admin-business-upgrade-request-reject",
+    ),
+
+    # =====================================================
+    # BUSINESS PORTFOLIO
+    # =====================================================
+
+    path(
+        "portfolio/create/",
+        BusinessPortfolioCreateAPIView.as_view(),
+        name="business-portfolio-create",
+    ),
+
+    path(
+        "portfolio/update/",
+        BusinessPortfolioUpdateAPIView.as_view(),
+        name="business-portfolio-update",
+    ),
+
+    path(
+        "portfolio/<uuid:business_profile_uuid>/",
+        BusinessPortfolioPublicRetrieveAPIView.as_view(),
+        name="business-portfolio-public-detail",
+    ),
+
+    path(
+        "portfolio/gallery/<uuid:gallery_image_uuid>/delete/",
+        BusinessPortfolioGalleryImageDeleteAPIView.as_view(),
+        name="business-portfolio-gallery-image-delete",
+    ),
+
+    path(
+        "portfolio/faqs/<uuid:faq_uuid>/delete/",
+        BusinessPortfolioFAQDeleteAPIView.as_view(),
+        name="business-portfolio-faq-delete",
     ),
 
 ]

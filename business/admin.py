@@ -4,6 +4,9 @@ from .models import (
     BusinessApplication,
     BusinessBankAccount,
     BusinessIdentity,
+    BusinessPortfolio,
+    BusinessPortfolioFAQ,
+    BusinessPortfolioGalleryImage,
     BusinessProfile,
     Employee,
     ProviderAvailability,
@@ -268,4 +271,79 @@ class BusinessUpgradeBankAccountAdmin(admin.ModelAdmin):
         "ifsc_code",
     )
 
+class BusinessPortfolioGalleryImageInline(admin.TabularInline):
+    model = BusinessPortfolioGalleryImage
+    extra = 0
+    fields = ("image", "caption", "created_at")
+    readonly_fields = ("created_at",)
+
+
+class BusinessPortfolioFAQInline(admin.TabularInline):
+    model = BusinessPortfolioFAQ
+    extra = 0
+    fields = ("question", "answer", "order")
+
+
+@admin.register(BusinessPortfolio)
+class BusinessPortfolioAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_portfolio_uuid",
+        "business",
+        "established_year",
+        "starting_price",
+        "response_time",
+        "created_at",
+    )
+
+    list_filter = (
+        "response_time",
+    )
+
+    search_fields = (
+        "business_portfolio_uuid",
+        "business__name",
+        "business__owner__email",
+    )
+
+    readonly_fields = (
+        "business_portfolio_uuid",
+        "created_at",
+        "updated_at",
+    )
+
+    inlines = (
+        BusinessPortfolioGalleryImageInline,
+        BusinessPortfolioFAQInline,
+    )
+
+
+@admin.register(BusinessPortfolioGalleryImage)
+class BusinessPortfolioGalleryImageAdmin(admin.ModelAdmin):
+    list_display = (
+        "gallery_image_uuid",
+        "portfolio",
+        "caption",
+        "created_at",
+    )
+
+    search_fields = (
+        "gallery_image_uuid",
+        "portfolio__business__name",
+    )
+
+
+@admin.register(BusinessPortfolioFAQ)
+class BusinessPortfolioFAQAdmin(admin.ModelAdmin):
+    list_display = (
+        "faq_uuid",
+        "portfolio",
+        "question",
+        "order",
+    )
+
+    search_fields = (
+        "faq_uuid",
+        "portfolio__business__name",
+        "question",
+    )
 
