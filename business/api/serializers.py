@@ -1,17 +1,21 @@
 import mimetypes
 
 from django.db import IntegrityError, transaction
+from django.db.models import Avg
 from django.urls import reverse
 from rest_framework import serializers
 
-from ..choices import BusinessType, BusinessApplicationStatus, DayOfWeek
+from ..choices import BusinessType, BusinessApplicationStatus, DayOfWeek, ResponseTime
 
-from categories.models import Category
-
+from categories.models import Category, SubCategory
+from urllib.parse import urlparse
 from ..models import (
     BusinessApplication,
     BusinessBankAccount,
     BusinessIdentity,
+    BusinessPortfolio,
+    BusinessPortfolioFAQ,
+    BusinessPortfolioGalleryImage,
     BusinessProfile,
     BusinessUpgradeIdentity,
     BusinessUpgradeRequest,
@@ -19,7 +23,20 @@ from ..models import (
     ProviderAvailability,
     EmployeeWorkingSchedule,
 )
+import mimetypes
+from ..services import get_current_business_identity
 
+from bookings.models import Booking
+from bookings.choices import BookingStatus
+from reviews.models import Review
+from services.models import Service
+from services.api.serializers import (
+    ServiceCategorySerializer,
+    ServiceReadSerializer,
+    ServiceSubCategorySerializer,
+)
+
+from django.utils import timezone
 class BusinessApplicationDetailsSerializer(serializers.Serializer):
     # =====================================================
     # BUSINESS TYPE
@@ -785,6 +802,24 @@ class BusinessProfileSerializer(
 
     def get_banner_url(self, obj):
         return None
+
+class PublicBusinessProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessProfile
+        fields = (
+            "business_profile_uuid",
+            "name",
+            "description",
+            "phone",
+            "email",
+            "location",
+            "business_type",
+            "website",
+            "is_active",
+            "rank",
+            "created_at",
+        )
+        read_only_fields = fields
 #=============================================================================================================================
 #                       Create Employee Seriaalizer
 #=============================================================================================================================
@@ -1700,3 +1735,366 @@ class BusinessUpgradeRequestDocumentsSerializer(
             obj.cancelled_gst_bill_book_photo,
             "gst_bill_book",
         )
+
+#=============================================================================================================================
+#                       Business Portfolio Serializers
+#=============================================================================================================================
+
+class BusinessPortfolioGalleryImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessPortfolioGalleryImage
+        fields = (
+            "gallery_image_uuid",
+            "image",
+            "caption",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class BusinessPortfolioFAQSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessPortfolioFAQ
+        fields = (
+            "faq_uuid",
+            "question",
+            "answer",
+            "order",
+            "created_at",
+        )
+        read_only_fields = fields
+
+class BusinessPortfolioWorkingHourSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmployeeWorkingSchedule
+        fields = (
+            "day_of_week",
+            "slot_type",
+            "start_time",
+            "end_time",
+            "employee_name",
+        )
+        read_only_fields = fields
+
+    def get_employee_name(self, obj):
+        return obj.employee.name if obj.employee_id else None
+class BusinessPortfolioReviewSerializer(serializers.ModelSerializer):
+    """Lightweight review info for the public business portfolio."""
+
+    class Meta:
+        model = Review
+        fields = (
+            "review_uuid",
+            "rating",
+            "message",
+        )
+        read_only_fields = fields
+
+class BusinessPortfolioWriteSerializer(serializers.ModelSerializer):
+    """
+    Used for both POST (create) and PATCH (update) of the base
+    portfolio fields. Gallery images and FAQs are handled
+    separately in the view/service layer, not through this
+    serializer, since they arrive as files / a JSON string.
+    """
+
+    class Meta:
+        model = BusinessPortfolio
+        fields = (
+            "established_year",
+            "starting_price",
+            "response_time",
+            "facebook_url",
+            "instagram_url",
+            "twitter_url",
+            "linkedin_url",
+        )
+
+    # Maps each field name to the single domain it must link to.
+    SOCIAL_URL_DOMAINS = {
+        "facebook_url": ("facebook.com", "Facebook"),
+        "instagram_url": ("instagram.com", "Instagram"),
+        "twitter_url": ("twitter.com", "Twitter"),
+        "linkedin_url": ("linkedin.com", "LinkedIn"),
+    }
+
+    def _validate_social_url(self, value, field_name):
+        expected_domain, platform_name = self.SOCIAL_URL_DOMAINS[field_name]
+
+        value = value.strip()
+        if not value:
+            return value
+
+        hostname = (urlparse(value).hostname or "").lower()
+
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        if hostname != expected_domain:
+            raise serializers.ValidationError(
+                f"Please enter a valid {platform_name} URL "
+                f"(must be a {expected_domain} link)."
+            )
+
+        return value
+
+    def validate_facebook_url(self, value):
+        return self._validate_social_url(value, "facebook_url")
+
+    def validate_instagram_url(self, value):
+        return self._validate_social_url(value, "instagram_url")
+
+    def validate_twitter_url(self, value):
+        return self._validate_social_url(value, "twitter_url")
+
+    def validate_linkedin_url(self, value):
+        return self._validate_social_url(value, "linkedin_url")
+
+    def validate_established_year(self, value):
+        if value is None:
+            return value
+
+        current_year = timezone.now().year
+
+        if value < 1900 or value > current_year:
+            raise serializers.ValidationError(
+                f"established_year must be a real 4-digit year between 1900 and {current_year}."
+            )
+
+        return value
+
+    def validate_starting_price(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError(
+                "starting_price must be greater than 0."
+            )
+
+        return value
+
+class BusinessPortfolioRequestDocSerializer(serializers.Serializer):
+    """
+    Documentation-only serializer, used purely so Swagger shows the
+    full multipart payload (base fields + gallery image uploads +
+    the FAQs JSON string). The view does NOT validate against this
+    serializer — base fields are validated with
+    BusinessPortfolioWriteSerializer, and gallery_images/faqs are
+    parsed separately in the view/service.
+    """
+
+    established_year = serializers.IntegerField(required=False)
+    starting_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+    )
+    response_time = serializers.ChoiceField(
+        choices=ResponseTime.choices,
+        required=False,
+    )
+    facebook_url = serializers.URLField(required=False)
+    instagram_url = serializers.URLField(required=False)
+    twitter_url = serializers.URLField(required=False)
+    linkedin_url = serializers.URLField(required=False)
+
+    gallery_images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False,
+        help_text="One or more image files to add to the gallery.",
+    )
+
+    faqs = serializers.CharField(
+        required=False,
+        help_text=(
+            'JSON string list of FAQs to add, e.g. '
+            '[{"question": "Do you work weekends?", "answer": "Yes"}]'
+        ),
+    )
+
+
+class BusinessPortfolioPublicSerializer(serializers.ModelSerializer):
+    """
+    Full public "portfolio" view of a business. Aggregates the
+    BusinessProfile itself with services, employees, completed
+    booking count, ratings/reviews, verification badges, and the
+    BusinessPortfolio extras (gallery, FAQs, social links, price,
+    response time, established year).
+    """
+
+    category = ServiceCategorySerializer(read_only=True)
+    subcategories = serializers.SerializerMethodField()
+    def get_subcategories(self, obj):
+        subcategories = SubCategory.objects.filter(
+            services__business=obj,
+            services__is_active=True,
+        ).distinct()
+
+        return ServiceSubCategorySerializer(
+            subcategories,
+            many=True,
+        ).data
+
+    services = serializers.SerializerMethodField()
+    employees = serializers.SerializerMethodField()
+    completed_bookings_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+    recent_reviews = serializers.SerializerMethodField()
+    verification_badges = serializers.SerializerMethodField()
+
+    established_year = serializers.SerializerMethodField()
+    starting_price = serializers.SerializerMethodField()
+    response_time = serializers.SerializerMethodField()
+    social_links = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
+    faqs = serializers.SerializerMethodField()
+    working_hours = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BusinessProfile
+        fields = (
+            "business_profile_uuid",
+            "name",
+            "description",
+            "phone",
+            "email",
+            "location",
+            "website",
+            "business_type",
+            "category",
+            "subcategories",
+            "is_active",
+            "created_at",
+            "services",
+            "employees",
+            "completed_bookings_count",
+            "average_rating",
+            "review_count",
+            "recent_reviews",
+            "verification_badges",
+            "established_year",
+            "starting_price",
+            "response_time",
+            "social_links",
+            "gallery_images",
+            "faqs",
+            "working_hours",
+        )
+        read_only_fields = fields
+
+    def _get_portfolio(self, obj):
+        return getattr(obj, "portfolio", None)
+
+    def get_services(self, obj):
+        services = Service.objects.filter(
+            business=obj,
+            is_active=True,
+        )
+        return ServiceReadSerializer(
+            services,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_employees(self, obj):
+        employees = obj.employees.filter(is_active=True)
+        return EmployeeListSerializer(employees, many=True).data
+
+    def get_completed_bookings_count(self, obj):
+        return Booking.objects.filter(
+            business=obj,
+            status=BookingStatus.COMPLETED,
+        ).count()
+
+    def get_average_rating(self, obj):
+        result = Review.objects.filter(business=obj).aggregate(avg=Avg("rating"))
+        avg = result["avg"]
+        return round(avg, 1) if avg is not None else None
+
+    def get_review_count(self, obj):
+        return Review.objects.filter(business=obj).count()
+
+    def get_recent_reviews(self, obj):
+        reviews = Review.objects.filter(business=obj).order_by("-created_at")[:5]
+        return BusinessPortfolioReviewSerializer(reviews, many=True).data
+
+    def get_verification_badges(self, obj):
+        identity = get_current_business_identity(obj)
+
+        if not identity:
+            return {
+                "gst_verified": False,
+                "pan_verified": False,
+                "aadhaar_verified": False,
+            }
+
+        return {
+            "gst_verified": bool(identity.gst_number),
+            "pan_verified": bool(identity.pan_number),
+            "aadhaar_verified": bool(identity.aadhaar_number),
+        }
+
+    def get_established_year(self, obj):
+        portfolio = self._get_portfolio(obj)
+        return portfolio.established_year if portfolio else None
+
+    def get_starting_price(self, obj):
+        portfolio = self._get_portfolio(obj)
+        return portfolio.starting_price if portfolio else None
+
+    def get_response_time(self, obj):
+        portfolio = self._get_portfolio(obj)
+        return portfolio.response_time if portfolio else ""
+
+    def get_social_links(self, obj):
+        portfolio = self._get_portfolio(obj)
+
+        if not portfolio:
+            return {
+                "facebook": "",
+                "instagram": "",
+                "twitter": "",
+                "linkedin": "",
+            }
+
+        return {
+            "facebook": portfolio.facebook_url,
+            "instagram": portfolio.instagram_url,
+            "twitter": portfolio.twitter_url,
+            "linkedin": portfolio.linkedin_url,
+        }
+
+    def get_gallery_images(self, obj):
+        portfolio = self._get_portfolio(obj)
+
+        if not portfolio:
+            return []
+
+        return BusinessPortfolioGalleryImageSerializer(
+            portfolio.gallery_images.all(),
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_faqs(self, obj):
+        portfolio = self._get_portfolio(obj)
+
+        if not portfolio:
+            return []
+
+        return BusinessPortfolioFAQSerializer(
+            portfolio.faqs.all(),
+            many=True,
+        ).data
+
+    def get_working_hours(self, obj):
+        schedules = EmployeeWorkingSchedule.objects.filter(
+            business=obj,
+            is_active=True,
+        )
+
+        return BusinessPortfolioWorkingHourSerializer(
+            schedules,
+            many=True,
+        ).data

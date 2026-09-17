@@ -1,12 +1,19 @@
 from django.db import transaction
 from django.utils import timezone
 
+from PIL import Image, UnidentifiedImageError
+
 from accounts.choices import UserRole
+
+from django.core.exceptions import ValidationError
 
 from .choices import BankVerificationStatus, BusinessApplicationStatus
 from .models import (
     BusinessApplication,
     BusinessIdentity,
+    BusinessPortfolio,
+    BusinessPortfolioFAQ,
+    BusinessPortfolioGalleryImage,
     BusinessProfile,
     BusinessUpgradeBankAccount,
     BusinessUpgradeIdentity,
@@ -787,6 +794,197 @@ class BusinessUpgradeService:
         )
 
         return upgrade_request
+
+class BusinessPortfolioService:
+    """
+    Handles create/update of a BusinessPortfolio along with its
+    nested gallery images and FAQs.
+    """
+
+    MAX_GALLERY_IMAGES = 10
+    ALLOWED_GALLERY_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+    MAX_FAQ_QUESTION_LENGTH = 255
+    MAX_FAQ_ANSWER_LENGTH = 2000
+
+    @staticmethod
+    def _validate_gallery_image(image_file):
+        """
+        Rejects empty uploads and anything whose actual content
+        isn't a genuine JPEG/PNG/WEBP image (checked with Pillow,
+        not just the filename or declared content-type).
+        """
+        file_name = getattr(image_file, "name", "file")
+
+        if not image_file or image_file.size == 0:
+            raise ValidationError(
+                {"gallery_images": f"'{file_name}' is empty. Please upload a valid image."}
+            )
+
+        try:
+            image_file.seek(0)
+            with Image.open(image_file) as img:
+                image_format = img.format
+                img.verify()
+        except Image.DecompressionBombError:
+            raise ValidationError(
+                {"gallery_images": f"'{file_name}' image dimensions are too large."}
+            )
+        except (UnidentifiedImageError, OSError, ValueError):
+            raise ValidationError(
+                {"gallery_images": f"'{file_name}' is not a valid image file."}
+            )
+        finally:
+            image_file.seek(0)
+
+        if image_format not in BusinessPortfolioService.ALLOWED_GALLERY_IMAGE_FORMATS:
+            raise ValidationError(
+                {
+                    "gallery_images": (
+                        f"'{file_name}' has an unsupported format ({image_format}). "
+                        "Allowed formats: JPEG, PNG, WEBP."
+                    )
+                }
+            )
+
+        return image_file
+
+    @staticmethod
+    def _parse_faqs(raw_faqs):
+        if not raw_faqs:
+            return []
+
+        import json
+
+        try:
+            data = json.loads(raw_faqs)
+        except (TypeError, ValueError):
+            raise ValidationError(
+                {"faqs": "faqs must be valid JSON: a list of {question, answer}."}
+            )
+
+        if not isinstance(data, list):
+            raise ValidationError(
+                {"faqs": "faqs must be a JSON list."}
+            )
+
+        cleaned = []
+        seen_questions = set()
+
+        for index, item in enumerate(data):
+            question = (item or {}).get("question", "").strip()
+            answer = (item or {}).get("answer", "").strip()
+
+            if not question or not answer:
+                raise ValidationError(
+                    {"faqs": f"Item {index} must have both question and answer."}
+                )
+
+            if len(question) > BusinessPortfolioService.MAX_FAQ_QUESTION_LENGTH:
+                raise ValidationError(
+                    {
+                        "faqs": (
+                            f"Item {index}: question must be at most "
+                            f"{BusinessPortfolioService.MAX_FAQ_QUESTION_LENGTH} characters "
+                            f"(got {len(question)})."
+                        )
+                    }
+                )
+
+            if len(answer) > BusinessPortfolioService.MAX_FAQ_ANSWER_LENGTH:
+                raise ValidationError(
+                    {
+                        "faqs": (
+                            f"Item {index}: answer must be at most "
+                            f"{BusinessPortfolioService.MAX_FAQ_ANSWER_LENGTH} characters "
+                            f"(got {len(answer)})."
+                        )
+                    }
+                )
+
+            normalized_question = question.lower()
+
+            if normalized_question in seen_questions:
+                raise ValidationError(
+                    {"faqs": f"Duplicate question found: '{question}'."}
+                )
+
+            seen_questions.add(normalized_question)
+
+            cleaned.append(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "order": index,
+                }
+            )
+
+        return cleaned
+
+    @classmethod
+    @transaction.atomic
+    def create_portfolio(cls, business, validated_data, gallery_files, raw_faqs):
+        faqs = cls._parse_faqs(raw_faqs)
+
+        if len(gallery_files) > cls.MAX_GALLERY_IMAGES:
+            raise ValidationError(
+                {"gallery_images": f"Maximum {cls.MAX_GALLERY_IMAGES} images allowed."}
+            )
+
+        for image_file in gallery_files:
+            cls._validate_gallery_image(image_file)
+
+        portfolio = BusinessPortfolio.objects.create(
+            business=business,
+            **validated_data,
+        )
+
+        for image_file in gallery_files:
+            BusinessPortfolioGalleryImage.objects.create(
+                portfolio=portfolio,
+                image=image_file,
+            )
+
+        for faq in faqs:
+            BusinessPortfolioFAQ.objects.create(
+                portfolio=portfolio,
+                **faq,
+            )
+
+        return portfolio
+
+    @classmethod
+    @transaction.atomic
+    def update_portfolio(cls, portfolio, validated_data, gallery_files, raw_faqs):
+        existing_count = portfolio.gallery_images.count()
+
+        if existing_count + len(gallery_files) > cls.MAX_GALLERY_IMAGES:
+            raise ValidationError(
+                {"gallery_images": f"Maximum {cls.MAX_GALLERY_IMAGES} images allowed in total."}
+            )
+
+        for image_file in gallery_files:
+            cls._validate_gallery_image(image_file)
+
+        for field, value in validated_data.items():
+            setattr(portfolio, field, value)
+        portfolio.save()
+
+        for image_file in gallery_files:
+            BusinessPortfolioGalleryImage.objects.create(
+                portfolio=portfolio,
+                image=image_file,
+            )
+
+        if raw_faqs:
+            faqs = cls._parse_faqs(raw_faqs)
+            portfolio.faqs.all().delete()
+            for faq in faqs:
+                BusinessPortfolioFAQ.objects.create(
+                    portfolio=portfolio,
+                    **faq,
+                )
+
+        return portfolio
 
 
 

@@ -1,6 +1,6 @@
+from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
-
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiResponse,
@@ -16,18 +16,20 @@ from rest_framework.parsers import (
 )
 
 from bookings.models import BookingEmployee 
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.choices import UserRole
 
-from ..choices import BusinessApplicationStatus, BusinessType, DayOfWeek, EmployeeAvailabilityStatus
-
+from ..choices import BusinessApplicationStatus, BusinessType, DayOfWeek, EmployeeAvailabilityStatus, ResponseTime
 from ..models import (
     BusinessApplication,
     BusinessBankAccount,
     BusinessIdentity,
+    BusinessPortfolio,
+    BusinessPortfolioFAQ,
+    BusinessPortfolioGalleryImage,
     BusinessProfile,
     BusinessUpgradeIdentity,
     BusinessUpgradeRequest,
@@ -39,6 +41,7 @@ from ..models import (
 from ..permissions import IsAdminRole, IsApprovedBusiness, IsEmployeeManagementAllowed
 from ..services import (
     BusinessApplicationService,
+    BusinessPortfolioService,
     BusinessUpgradeService,
     get_current_business_identity,
     send_business_email_raw
@@ -48,6 +51,11 @@ from ..document_utils import serve_document_file
 from .serializers import (
     BusinessApplicationFullSerializer,
     BusinessApplicationSubmitSerializer,
+    BusinessPortfolioFAQSerializer,
+    BusinessPortfolioGalleryImageSerializer,
+    BusinessPortfolioPublicSerializer,
+    BusinessPortfolioRequestDocSerializer,
+    BusinessPortfolioWriteSerializer,
     BusinessProfileSerializer,
     RejectBusinessApplicationSerializer,
     EmployeeCreateSerializer,
@@ -61,6 +69,7 @@ from .serializers import (
     BusinessUpgradeRequestDocumentsSerializer,
     BusinessProfileRankUpdateSerializer,
     WorkingScheduleApplyToDaysSerializer,
+    PublicBusinessProfileSerializer
 )
 
 from rest_framework.generics import (
@@ -72,7 +81,7 @@ from rest_framework.generics import (
 
 from django.db.models import Q
 
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, Http404, request
 
 
 # =========================================================
@@ -1216,6 +1225,34 @@ class BusinessProfileListAPIView(APIView):
             }
         )
 
+
+class PublicBusinessProfileListAPIView(APIView):
+    permission_classes = []
+
+    @extend_schema(
+        tags=["Business Profile"],
+        summary="List active business profiles by subcategory",
+        responses=PublicBusinessProfileSerializer(many=True),
+    )
+    def get(self, request, subCat_uuid):
+        profiles = (
+            BusinessProfile.objects
+            .filter(
+                services__subcategory__subCat_uuid=subCat_uuid,
+                services__is_active=True,
+                is_active=True,
+            )
+            .order_by("-rank")
+            .distinct()
+        )
+
+        serializer = PublicBusinessProfileSerializer(
+            profiles,
+            many=True,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
 
 # =========================================================
 # BUSINESS PROFILE UPDATE
@@ -3726,4 +3763,333 @@ class AdminRejectBusinessUpgradeRequestAPIView(APIView):
                 ),
             },
             status=status.HTTP_200_OK,
+        )
+
+# =========================================================
+# BUSINESS PORTFOLIO
+# =========================================================
+
+class BusinessPortfolioCreateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @extend_schema(
+        tags=["Business-Portfolio"],
+        summary="Create my business portfolio",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "established_year": {"type": "integer"},
+                    "starting_price": {"type": "string", "format": "decimal"},
+                    "response_time": {
+                        "type": "string",
+                        "enum": [choice[0] for choice in ResponseTime.choices],
+                    },
+                    "facebook_url": {"type": "string", "format": "uri"},
+                    "instagram_url": {"type": "string", "format": "uri"},
+                    "twitter_url": {"type": "string", "format": "uri"},
+                    "linkedin_url": {"type": "string", "format": "uri"},
+                    "gallery_images": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                    },
+                    "faqs": {
+                        "type": "string",
+                        "description": (
+                            'JSON string list of FAQs, e.g. '
+                            '[{"question": "Do you work weekends?", "answer": "Yes"}]'
+                        ),
+                    },
+                },
+            }
+        },
+        responses=BusinessPortfolioPublicSerializer,
+    )
+    def post(self, request):
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if BusinessPortfolio.objects.filter(business=business).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "A portfolio already exists for this business. "
+                        "Use the update API instead."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = BusinessPortfolioWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        gallery_files = request.FILES.getlist("gallery_images")
+        raw_faqs = request.data.get("faqs")
+
+        try:
+            BusinessPortfolioService.create_portfolio(
+                business=business,
+                validated_data=serializer.validated_data,
+                gallery_files=gallery_files,
+                raw_faqs=raw_faqs,
+            )
+        except ValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": exc.message_dict if hasattr(exc, "message_dict") else exc.messages,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        business.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Business portfolio created successfully.",
+                "data": BusinessPortfolioPublicSerializer(
+                    business,
+                    context={"request": request},
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BusinessPortfolioPublicRetrieveAPIView(APIView):
+
+    permission_classes = []
+
+    @extend_schema(
+        tags=["Business-Portfolio"],
+        summary="View a business's public portfolio",
+        responses=BusinessPortfolioPublicSerializer,
+    )
+    def get(self, request, business_profile_uuid):
+
+        business = get_object_or_404(
+            BusinessProfile,
+            business_profile_uuid=business_profile_uuid,
+            is_active=True,
+        )
+
+        serializer = BusinessPortfolioPublicSerializer(
+            business,
+            context={"request": request},
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
+        )
+
+
+class BusinessPortfolioUpdateAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @extend_schema(
+        tags=["Business-Portfolio"],
+        summary="Update my business portfolio",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "established_year": {"type": "integer"},
+                    "starting_price": {"type": "string", "format": "decimal"},
+                    "response_time": {
+                        "type": "string",
+                        "enum": [choice[0] for choice in ResponseTime.choices],
+                    },
+                    "facebook_url": {"type": "string", "format": "uri"},
+                    "instagram_url": {"type": "string", "format": "uri"},
+                    "twitter_url": {"type": "string", "format": "uri"},
+                    "linkedin_url": {"type": "string", "format": "uri"},
+                    "gallery_images": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                    },
+                    "faqs": {
+                        "type": "string",
+                        "description": (
+                            'JSON string list of FAQs to add, e.g. '
+                            '[{"question": "Do you work weekends?", "answer": "Yes"}]'
+                        ),
+                    },
+                },
+            }
+        },
+        responses=BusinessPortfolioPublicSerializer,
+    )
+    def patch(self, request):
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        portfolio = get_object_or_404(
+            BusinessPortfolio,
+            business=business,
+        )
+
+        serializer = BusinessPortfolioWriteSerializer(
+            portfolio,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        gallery_files = request.FILES.getlist("gallery_images")
+        raw_faqs = request.data.get("faqs")
+
+        try:
+            BusinessPortfolioService.update_portfolio(
+                portfolio=portfolio,
+                validated_data=serializer.validated_data,
+                gallery_files=gallery_files,
+                raw_faqs=raw_faqs,
+            )
+        except ValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": exc.message_dict if hasattr(exc, "message_dict") else exc.messages,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        business.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Business portfolio updated successfully.",
+                "data": BusinessPortfolioPublicSerializer(
+                    business,
+                    context={"request": request},
+                ).data,
+            }
+        )
+
+
+class BusinessPortfolioGalleryImageDeleteAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    @extend_schema(
+        tags=["Business-Portfolio"],
+        summary="Delete one of my portfolio gallery images",
+    )
+    def delete(self, request, gallery_image_uuid):
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        image = get_object_or_404(
+            BusinessPortfolioGalleryImage,
+            gallery_image_uuid=gallery_image_uuid,
+            portfolio__business=business,
+        )
+
+        image.delete()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Gallery image deleted successfully.",
+            }
+        )
+
+
+class BusinessPortfolioFAQDeleteAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    @extend_schema(
+        tags=["Business-Portfolio"],
+        summary="Delete one of my portfolio FAQs",
+    )
+    def delete(self, request, faq_uuid):
+
+        business = BusinessProfile.objects.filter(
+            owner=request.user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        faq = get_object_or_404(
+            BusinessPortfolioFAQ,
+            faq_uuid=faq_uuid,
+            portfolio__business=business,
+        )
+
+        faq.delete()
+
+        return Response(
+            {
+                "success": True,
+                "message": "FAQ deleted successfully.",
+            }
         )
