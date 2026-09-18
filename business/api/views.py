@@ -49,6 +49,7 @@ from ..services import (
 from ..document_utils import serve_document_file
 
 from .serializers import (
+    BusinessApplicationAcceptedSerializer,
     BusinessApplicationFullSerializer,
     BusinessApplicationSubmitSerializer,
     BusinessPortfolioFAQSerializer,
@@ -69,7 +70,8 @@ from .serializers import (
     BusinessUpgradeRequestDocumentsSerializer,
     BusinessProfileRankUpdateSerializer,
     WorkingScheduleApplyToDaysSerializer,
-    PublicBusinessProfileSerializer
+    PublicBusinessProfileSerializer,
+    AdminBusinessProfileUpdateSerializer,
 )
 
 from rest_framework.generics import (
@@ -686,6 +688,27 @@ class BusinessApplicationAcceptedListAPIView(APIView):
                                     "created_at": "2026-09-04T10:30:00Z",
                                     "reviewed_at": "2026-09-04T12:00:00Z",
                                     "rejection_reason": None,
+                                    "business_profile": {
+                                        "business_profile_uuid": (
+                                            "c4d5e6f7-8901-4abc-9def-0123456789ab"
+                                        ),
+                                        "name": "Ravi's Auto Works",
+                                        "description": "",
+                                        "email": "ravi@example.com",
+                                        "phone": "9876543210",
+                                        "website": "",
+                                        "location": "Bengaluru, Karnataka",
+                                        "business_type": "COMPANY",
+                                        "category_uuid": (
+                                            "d5e6f7a8-9012-4abc-9def-0123456789ab"
+                                        ),
+                                        "category_name": "Automotive",
+                                        "subcategories": [],
+                                        "is_active": True,
+                                        "rank": 1,
+                                        "created_at": "2026-09-04T12:00:00Z",
+                                        "updated_at": "2026-09-04T12:00:00Z",
+                                    },
                                 }
                             ],
                         },
@@ -698,7 +721,7 @@ class BusinessApplicationAcceptedListAPIView(APIView):
 
     def get(self, request):
 
-        applications = (
+        applications = list(
             BusinessApplication.objects
             .filter(
                 status=BusinessApplicationStatus.APPROVED,
@@ -713,8 +736,39 @@ class BusinessApplicationAcceptedListAPIView(APIView):
             )
         )
 
+        # Attach the matching BusinessProfile to each application
+        # in one extra query, to avoid an N+1 query per row when
+        # the serializer looks up the profile.
+        owner_ids = [
+            application.user_id
+            for application in applications
+        ]
+
+        profiles = (
+            BusinessProfile.objects
+            .filter(
+                owner_id__in=owner_ids,
+            )
+            .select_related(
+                "category",
+            )
+            .prefetch_related(
+                "subcategories",
+            )
+        )
+
+        profile_map = {
+            (profile.owner_id, profile.business_type): profile
+            for profile in profiles
+        }
+
+        for application in applications:
+            application._business_profile = profile_map.get(
+                (application.user_id, application.business_type)
+            )
+
         serializer = (
-            BusinessApplicationFullSerializer(
+            BusinessApplicationAcceptedSerializer(
                 applications,
                 many=True,
             )
@@ -1174,6 +1228,59 @@ class AdminBusinessProfileRankUpdateAPIView(
                     ),
                     "rank": profile.rank,
                 },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class AdminBusinessProfileUpdateAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole
+    ]
+
+    @extend_schema(
+        tags=["Business Administration"],
+        summary="Update a business profile (admin)",
+        description=(
+            "Allows an admin to update a business profile's "
+            "core details — name, description, contact info, "
+            "location, website, business type, category, and "
+            "active status. Rank is managed separately via "
+            "the rank-update endpoint."
+        ),
+        request=AdminBusinessProfileUpdateSerializer,
+        responses=BusinessProfileSerializer,
+    )
+    def patch(
+        self,
+        request,
+        business_profile_uuid,
+    ):
+
+        profile = get_object_or_404(
+            BusinessProfile,
+            business_profile_uuid=business_profile_uuid,
+        )
+
+        serializer = AdminBusinessProfileUpdateSerializer(
+            profile,
+            data=request.data,
+            partial=True,
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Business profile updated successfully."
+                ),
+                "data": BusinessProfileSerializer(
+                    profile,
+                    context={"request": request},
+                ).data,
             },
             status=status.HTTP_200_OK,
         )

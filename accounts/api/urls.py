@@ -13,7 +13,7 @@ from .views import (
     GetUserAddressAPIView,
     UpdateUserAddressAPIView,
     DeleteUserAddressAPIView,
-
+    VerifyEmailUpdateAPIView,
     ForgotPasswordView,
     UnifiedPasswordResetView,
 
@@ -47,6 +47,11 @@ urlpatterns = [
         name="verify-phone-update-otp",
     ),
 
+    path(
+        "profile/verify-email/",
+        VerifyEmailUpdateAPIView.as_view(),
+        name="verify-email-update",
+    ),
     path(
         "signup/verify-email/",
         VerifyEmailAPIView.as_view(),

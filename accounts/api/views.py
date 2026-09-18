@@ -58,6 +58,7 @@ from .serializers import (
     GoogleLoginSerializer,
     SignupVerifyOTPSerializer,
     VerifyPhoneUpdateOTPSerializer,
+    VerifyEmailUpdateSerializer
 )
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -283,6 +284,83 @@ class VerifyEmailAPIView(APIView):
                         "role": user.role,
                         "profileImage": get_profile_picture_url(user, request)
                     },
+                },
+            },
+            status=status.HTTP_200_OK,
+            
+        )
+# =========================================================
+# VERIFY EMAIL UPDATE
+# =========================================================
+
+@extend_schema(
+    auth=[],
+    tags=["Accounts"],
+    summary="Verify Profile Email",
+    description=(
+        "Verifies an email address that was added to an "
+        "existing user profile."
+    ),
+    request=VerifyEmailUpdateSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Email address verified successfully.",
+            examples=[
+                OpenApiExample(
+                    "Success",
+                    value={
+                        "success": True,
+                        "message": (
+                            "Email address verified "
+                            "successfully."
+                        ),
+                    },
+                    response_only=True,
+                ),
+            ],
+        ),
+    },
+)
+class VerifyEmailUpdateAPIView(APIView):
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    def post(
+        self,
+        request,
+    ):
+
+        serializer = VerifyEmailUpdateSerializer(
+            data=request.data,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        user = AuthService.verify_email_update(
+            email_update_verification_uuid=(
+                serializer.validated_data[
+                    "email_update_verification_uuid"
+                ]
+            ),
+            token=serializer.validated_data[
+                "token"
+            ],
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Email address verified "
+                    "successfully."
+                ),
+                "data": {
+                    "email": user.email,
                 },
             },
             status=status.HTTP_200_OK,
@@ -617,6 +695,45 @@ class UpdateProfileAPIView(APIView):
         new_phone = serializer.validated_data.get(
             "phone"
         )
+
+        new_email = serializer.validated_data.get(
+            "email"
+        )
+
+        # -------------------------------------------------
+        # EMAIL ADDRESS ADDITION
+        # -------------------------------------------------
+
+        if (
+            new_email
+            and new_email != request.user.email
+        ):
+
+            verification = (
+                AuthService.create_email_update_verification(
+                    user=request.user,
+                    email=new_email,
+                )
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "Verification email sent successfully. "
+                        "Please verify your email address to "
+                        "complete the update."
+                    ),
+                    "data": {
+                        "email": new_email,
+                        "email_verification_required": True,
+                        "email_update_verification_uuid": str(
+                            verification.email_update_verification_uuid
+                        ),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
         # -------------------------------------------------
         # -------------------------------------------------
         # PHONE NUMBER CHANGE

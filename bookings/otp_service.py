@@ -67,6 +67,7 @@ class BookingCompletionOTPService:
         record = BookingCompletionOTP.objects.create(
             booking=booking,
             instant_booking=instant_booking,
+            otp=otp,
             otp_hash=otp_hash,
             expires_at=(
                 timezone.now()
@@ -158,3 +159,21 @@ class BookingCompletionOTPService:
         )
 
         return True, "OTP verified successfully."
+
+    @classmethod
+    def get_active_otp(cls, booking=None, instant_booking=None):
+        """
+        Returns the plaintext OTP currently valid for this
+        booking, or None if there isn't one (never requested,
+        already verified, or expired). Used to show the same
+        code in-app that was emailed to the customer.
+        """
+        record = cls._active_record(
+            booking=booking,
+            instant_booking=instant_booking,
+        )
+
+        if not record or timezone.now() > record.expires_at:
+            return None
+
+        return record.otp

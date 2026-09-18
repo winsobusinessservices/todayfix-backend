@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth import authenticate
 
-from rest_framework import serializers
+
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
@@ -392,6 +392,11 @@ class UpdateProfileSerializer(
         allow_blank=True,
     )
 
+    email = serializers.EmailField(
+        required=False,
+        allow_blank=False,
+    )
+
     phone = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -411,6 +416,7 @@ class UpdateProfileSerializer(
         fields = (
             "firstName",
             "lastName",
+            "email",
             "phone",
             "profileImage",
         )
@@ -463,6 +469,45 @@ class UpdateProfileSerializer(
         return value
 
     # =====================================================
+    # EMAIL VALIDATION
+    # =====================================================
+
+    def validate_email(self, value):
+
+        value = value.strip().lower()
+
+        # -------------------------------------------------
+        # EMAIL ALREADY EXISTS FOR THIS USER
+        # -------------------------------------------------
+
+        if self.instance.email:
+
+            if value == self.instance.email.lower():
+                return value
+
+            raise serializers.ValidationError(
+                "Your email address is already set and "
+                "cannot be changed here. Please contact "
+                "support to have it updated."
+            )
+
+        # -------------------------------------------------
+        # EMAIL MUST NOT BELONG TO ANOTHER ACCOUNT
+        # -------------------------------------------------
+
+        if CustomUser.objects.filter(
+            email__iexact=value
+        ).exclude(
+            pk=self.instance.pk
+        ).exists():
+
+            raise serializers.ValidationError(
+                "Email address already exists."
+            )
+
+        return value
+
+    # =====================================================
     # UPDATE
     # =====================================================
 
@@ -476,6 +521,28 @@ class UpdateProfileSerializer(
             "profileImage",
             None
         )
+
+        # -------------------------------------------------
+        # DO NOT directly update a new email address.
+        #
+        # The view will handle email verification.
+        # -------------------------------------------------
+
+        new_email = validated_data.get(
+            "email"
+        )
+
+        if (
+            new_email
+            and (
+                not instance.email
+                or new_email.lower()
+                != instance.email.lower()
+            )
+        ):
+            validated_data.pop(
+                "email"
+            )
 
         new_phone = validated_data.get(
             "phone"
@@ -572,6 +639,23 @@ class VerifyPhoneUpdateOTPSerializer(serializers.Serializer):
             )
 
         return value
+
+# =========================================================
+# VERIFY EMAIL UPDATE
+# =========================================================
+
+class VerifyEmailUpdateSerializer(
+    serializers.Serializer
+):
+
+    email_update_verification_uuid = (
+        serializers.UUIDField()
+    )
+
+    token = serializers.CharField(
+        min_length=1,
+        max_length=128,
+    )
 
 # =========================================================
 # ADDRESS

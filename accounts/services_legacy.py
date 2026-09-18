@@ -16,6 +16,7 @@ from accounts.models import (
     PasswordResetToken,
     PendingRegistration,
     SignupOTPVerification,
+    EmailUpdateVerification,
 )
 # Import from new location for backward compatibility
 from accounts.services.otp_service import SignupOTPService  # noqa: F401
@@ -110,7 +111,13 @@ def send_password_changed_email(user):
     email_message.send(
         fail_silently=True,
     )
-    
+
+
+
+
+
+
+    return user    
 class AuthService:
     # =========================================================
     # USER REGISTRATION
@@ -636,6 +643,266 @@ class AuthService:
                 "updated_at",
             ]
         )
+        return user
+
+        # =========================================================
+    # PROFILE EMAIL UPDATE - SEND VERIFICATION
+    # =========================================================
+    @staticmethod
+    def create_email_update_verification(
+        user,
+        email,
+    ):
+        email = email.strip().lower()
+
+        # -------------------------------------------------
+        # USER ALREADY HAS AN EMAIL
+        # -------------------------------------------------
+
+        if user.email:
+            raise ValidationError({
+                "email": (
+                    "Your email address is already set and "
+                    "cannot be changed here. Please contact "
+                    "support to have it updated."
+                )
+            })
+
+        # -------------------------------------------------
+        # EMAIL MUST NOT BELONG TO ANOTHER ACCOUNT
+        # -------------------------------------------------
+
+        if CustomUser.objects.filter(
+            email__iexact=email
+        ).exclude(
+            pk=user.pk
+        ).exists():
+            raise ValidationError({
+                "email": "Email address already exists."
+            })
+
+        # -------------------------------------------------
+        # INVALIDATE PREVIOUS VERIFICATION LINKS
+        # -------------------------------------------------
+
+        EmailUpdateVerification.objects.filter(
+            user=user,
+            is_used=False,
+        ).update(
+            is_used=True
+        )
+
+        # -------------------------------------------------
+        # CREATE NEW TOKEN
+        # -------------------------------------------------
+
+        token = secrets.token_urlsafe(48)
+
+        verification = (
+            EmailUpdateVerification.objects.create(
+                user=user,
+                email=email,
+                token=token,
+                expires_at=(
+                    timezone.now()
+                    + timedelta(minutes=15)
+                ),
+            )
+        )
+
+        # -------------------------------------------------
+        # BUILD VERIFICATION LINK
+        # -------------------------------------------------
+
+        verification_link = (
+            f"{settings.FRONTEND_DOMAIN}/verify-email-update/"
+            f"?email_update_verification_uuid="
+            f"{verification.email_update_verification_uuid}"
+            f"&token={verification.token}"
+        )
+
+        # -------------------------------------------------
+        # EMAIL TEMPLATE
+        # -------------------------------------------------
+
+        try:
+            template = EmailTemplate.objects.get(
+                name="EMAIL_UPDATE_VERIFICATION"
+            )
+        except EmailTemplate.DoesNotExist:
+            raise ValidationError({
+                "email": (
+                    "Email verification service is "
+                    "currently unavailable."
+                )
+            })
+
+        message = (
+            template.message
+            .replace(
+                "{{ first_name }}",
+                user.first_name or "User",
+            )
+            .replace(
+                "{{ verification_link }}",
+                verification_link,
+            )
+            .replace(
+                "{{ expiry_minutes }}",
+                "15",
+            )
+        )
+
+        html_message = render_to_string(
+            "emails/base_email.html",
+            {
+                "subject": template.subject,
+                "logo_url": settings.EMAIL_LOGO_URL,
+                "first_name": user.first_name or "User",
+                "message": message,
+                "otp": "",
+                "verification_link": verification_link,
+                "additional_message": "",
+            },
+        )
+
+        email_message = EmailMultiAlternatives(
+            subject=template.subject,
+            body=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[email],
+        )
+
+        email_message.attach_alternative(
+            html_message,
+            "text/html",
+        )
+
+        email_message.send(
+            fail_silently=False,
+        )
+
+        return verification
+
+    # =========================================================
+    # PROFILE EMAIL UPDATE - VERIFY
+    # =========================================================
+    @staticmethod
+    def verify_email_update(
+        email_update_verification_uuid,
+        token,
+    ):
+        verification = (
+            EmailUpdateVerification.objects
+            .filter(
+                email_update_verification_uuid=(
+                    email_update_verification_uuid
+                ),
+                token=token,
+                is_used=False,
+            )
+            .select_related("user")
+            .first()
+        )
+
+        if not verification:
+            raise ValidationError({
+                "detail": (
+                    "Invalid or already used "
+                    "verification link."
+                )
+            })
+
+        # -------------------------------------------------
+        # EXPIRY
+        # -------------------------------------------------
+
+        if timezone.now() > verification.expires_at:
+            verification.is_used = True
+            verification.save(
+                update_fields=["is_used"]
+            )
+
+            raise ValidationError({
+                "detail": (
+                    "Email verification link has expired."
+                )
+            })
+
+        user = verification.user
+
+        # -------------------------------------------------
+        # USER MAY HAVE BEEN VERIFIED THROUGH ANOTHER
+        # REQUEST
+        # -------------------------------------------------
+
+        if user.email:
+            verification.is_used = True
+            verification.save(
+                update_fields=["is_used"]
+            )
+
+            raise ValidationError({
+                "detail": (
+                    "Your email address is already set "
+                    "and cannot be changed here."
+                )
+            })
+
+        # -------------------------------------------------
+        # CHECK EMAIL UNIQUENESS AGAIN
+        # -------------------------------------------------
+
+        if CustomUser.objects.filter(
+            email__iexact=verification.email
+        ).exclude(
+            pk=user.pk
+        ).exists():
+            verification.is_used = True
+            verification.save(
+                update_fields=["is_used"]
+            )
+
+            raise ValidationError({
+                "email": "Email address already exists."
+            })
+
+        # -------------------------------------------------
+        # SAVE VERIFIED EMAIL
+        # -------------------------------------------------
+
+        user.email = verification.email
+
+        user.save(
+            update_fields=[
+                "email",
+                "updated_at",
+            ]
+        )
+
+        verification.is_used = True
+        verification.verified_at = timezone.now()
+
+        verification.save(
+            update_fields=[
+                "is_used",
+                "verified_at",
+            ]
+        )
+
+        # -------------------------------------------------
+        # INVALIDATE OTHER ACTIVE LINKS
+        # -------------------------------------------------
+
+        EmailUpdateVerification.objects.filter(
+            user=user,
+            is_used=False,
+        ).exclude(
+            pk=verification.pk
+        ).update(
+            is_used=True
+        )
+
         return user
     # =========================================================
     # PASSWORD RESET TOKEN

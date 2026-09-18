@@ -7,7 +7,7 @@ class ReviewImageInline(admin.TabularInline):
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
-    list_display = ("review_uuid", "booking", "customer", "business", "rating", "created_at")
+    list_display = ("review_uuid", "booking", "instant_booking", "customer", "business", "rating", "created_at")
     list_filter = ("rating", "created_at")
     search_fields = ("customer__email", "business__name", "review_uuid")
     inlines = [ReviewImageInline]

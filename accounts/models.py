@@ -357,7 +357,57 @@ class PendingRegistration(models.Model):
             f"{self.email or self.phone}"
         )
     
+# =========================================================
+# EMAIL UPDATE VERIFICATION
+# =========================================================
 
+class EmailUpdateVerification(models.Model):
+
+    email_update_verification_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="email_update_verifications",
+    )
+
+    email = models.EmailField(
+        db_index=True,
+    )
+
+    token = models.CharField(
+        max_length=128,
+        unique=True,
+    )
+
+    expires_at = models.DateTimeField()
+
+    is_used = models.BooleanField(
+        default=False,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"Email update verification - "
+            f"{self.email}"
+        )
+    
 #==================================Signup OTP model====================
 class SignupOTPVerification(models.Model):
 

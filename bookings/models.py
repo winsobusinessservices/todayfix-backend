@@ -149,6 +149,11 @@ class BookingCompletionOTP(TimeStampedModel):
         blank=True,
     )
 
+    otp = models.CharField(
+        max_length=6,
+        default="",
+    )
+
     otp_hash = models.CharField(
         max_length=128,
     )

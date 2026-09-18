@@ -393,6 +393,92 @@ class BusinessInstantBookingAcceptedSerializer(
 
         read_only_fields = fields
 
+class BusinessInstantBookingCompletedSerializer(
+    serializers.ModelSerializer
+):
+    """
+    Completed-booking response shown to the business owner, for
+    their instant-booking completion history.
+    """
+
+    category_name = serializers.CharField(
+        source="category.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    subcategory_name = serializers.CharField(
+        source="subcategory.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    address_uuid = serializers.UUIDField(
+        source="address.add_uuid",
+        read_only=True,
+    )
+
+    customer_phone = serializers.CharField(
+        source="customer.phone",
+        read_only=True,
+        allow_null=True,
+    )
+
+    location = serializers.CharField(
+        source="address.location",
+        read_only=True,
+        allow_null=True,
+    )
+
+    address = serializers.SerializerMethodField()
+
+    def get_address(self, obj):
+        parts = [
+            obj.address.address_line,
+            obj.address.locality,
+            obj.address.city,
+            obj.address.state,
+            obj.address.pincode,
+        ]
+        return ", ".join(part for part in parts if part)
+
+    employee_uuid = serializers.UUIDField(
+        source="assigned_employee.employee_uuid",
+        read_only=True,
+        allow_null=True,
+    )
+
+    employee_name = serializers.CharField(
+        source="assigned_employee.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = InstantBooking
+
+        fields = [
+            "instant_booking_uuid",
+            "category_name",
+            "subcategory_name",
+            "address_uuid",
+            "customer_phone",
+            "address",
+            "location",
+            "requested_service_name",
+            "customer_note",
+            "quoted_price",
+            "tip_amount",
+            "total_payable_price",
+            "employee_uuid",
+            "employee_name",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = fields
+
 class InstantBookingCompleteVerifySerializer(serializers.Serializer):
     """
     Input for verifying the OTP that confirms an instant service

@@ -475,6 +475,130 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
             validated_data,
         )
 
+class AdminServiceUpdateSerializer(serializers.ModelSerializer):
+    """
+    Admin-only partial update serializer for services.
+
+    Unlike ServiceUpdateSerializer, the required_employees
+    check is based on the service's own business
+    (self.instance.business), not the requesting user's
+    business — the admin has no business of their own.
+    """
+
+    cat_uuid = serializers.UUIDField(
+        write_only=True,
+        required=False,
+    )
+
+    subCat_uuid = serializers.UUIDField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
+    required_employees = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
+
+    class Meta:
+        model = Service
+        fields = (
+            "name",
+            "description",
+            "price",
+            "duration",
+            "required_employees",
+            "cat_uuid",
+            "subCat_uuid",
+            "is_active",
+        )
+
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Price must be greater than 0."
+            )
+        return value
+
+    def validate_required_employees(self, value):
+        if (
+            self.instance
+            and self.instance.business.business_type
+            == BusinessType.INDIVIDUAL
+        ):
+            raise serializers.ValidationError(
+                "Required employees are not available "
+                "for Individual businesses. The business "
+                "must be upgraded to Company or Investor "
+                "to use multiple employees for a service."
+            )
+
+        return value
+
+    def validate_cat_uuid(self, value):
+        try:
+            category = Category.objects.get(
+                cat_uuid=value,
+                is_active=True,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError(
+                "Category not found."
+            )
+
+        self._category = category
+        return value
+
+    def validate_subCat_uuid(self, value):
+        if value is None:
+            return value
+
+        try:
+            subcategory = SubCategory.objects.get(
+                subCat_uuid=value,
+                is_active=True,
+            )
+        except SubCategory.DoesNotExist:
+            raise serializers.ValidationError(
+                "Subcategory not found."
+            )
+
+        self._subcategory = subcategory
+        return value
+
+    def validate(self, attrs):
+        subcategory = getattr(self, "_subcategory", None)
+        category = getattr(self, "_category", None)
+
+        if (
+            subcategory
+            and category
+            and subcategory.category != category
+        ):
+            raise serializers.ValidationError({
+                "subCat_uuid": (
+                    "Subcategory does not belong "
+                    "to the selected category."
+                )
+            })
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        if "cat_uuid" in validated_data:
+            validated_data.pop("cat_uuid")
+            instance.category = self._category
+
+        if "subCat_uuid" in validated_data:
+            validated_data.pop("subCat_uuid")
+            instance.subcategory = getattr(
+                self,
+                "_subcategory",
+                None,
+            )
+
+        return super().update(instance, validated_data)
 
 # =============================================================
 # SERVICE - EMPLOYEE ASSIGNMENT
