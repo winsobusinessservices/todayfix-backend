@@ -16,7 +16,8 @@ from .views import (
     MyServicesAPIView,
     ServiceEmployeeDeleteAPIView,
     SubCategoryServiceListAPIView,
-    ServiceRankUpdateAPIView
+    ServiceRankUpdateAPIView,
+    AdminServiceUpdateAPIView,
 )
 
 
@@ -128,6 +129,16 @@ urlpatterns = [
         "<uuid:service_uuid>/rank/",
         ServiceRankUpdateAPIView.as_view(),
         name="service-rank-update",
+    ),
+
+    # =====================================================
+    # ADMIN
+    # =====================================================
+
+    path(
+        "admin/<uuid:service_uuid>/update/",
+        AdminServiceUpdateAPIView.as_view(),
+        name="admin-service-update",
     ),
 
 ]

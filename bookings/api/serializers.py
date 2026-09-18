@@ -228,6 +228,7 @@ class BookingHistorySerializer(serializers.Serializer):
     price = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
+    completion_otp = serializers.SerializerMethodField()
 
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -310,6 +311,19 @@ class BookingHistorySerializer(serializers.Serializer):
 
     def get_status(self, obj):
         return obj.status
+
+    def get_completion_otp(self, obj):
+        from bookings.otp_service import BookingCompletionOTPService
+
+        if isinstance(obj, InstantBooking):
+            return BookingCompletionOTPService.get_active_otp(
+                instant_booking=obj
+            )
+
+        return BookingCompletionOTPService.get_active_otp(
+            booking=obj
+        )
+
 
     def get_notes(self, obj):
         if isinstance(obj, InstantBooking):

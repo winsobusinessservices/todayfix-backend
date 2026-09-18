@@ -11,12 +11,14 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from instant_bookings.api.serializers import (
     BusinessInstantBookingAcceptedSerializer,
+    BusinessInstantBookingCompletedSerializer,
     InstantBookingCompleteVerifySerializer,
     InstantBookingCreateSerializer,
     InstantBookingOfferReadSerializer,
@@ -685,6 +687,96 @@ class BusinessInstantBookingAcceptedListAPIView(APIView):
                 ).data,
             },
             status=status.HTTP_200_OK,
+        )
+@extend_schema(
+    tags=["Instant Bookings"],
+    summary="List Completed Bookings",
+    description=(
+        "Business owner views all of their completed instant "
+        "bookings, paginated, newest first."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="page",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="A page number within the paginated result set.",
+        ),
+    ],
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Completed instant bookings assigned to the business",
+            examples=[
+                OpenApiExample(
+                    "Response",
+                    value={'count': 1,
+ 'next': None,
+ 'previous': None,
+ 'results': {'success': True,
+             'data': [{'instant_booking_uuid': '550e8400-e29b-41d4-a716-446655440000',
+                       'category_name': 'Electrical',
+                       'subcategory_name': 'Wiring',
+                       'address_uuid': '550e8400-e29b-41d4-a716-446655440003',
+                       'requested_service_name': 'Wiring',
+                       'customer_note': 'Please check the wiring issue.',
+                       'quoted_price': '678.50',
+                       'tip_amount': '0.00',
+                       'total_payable_price': '678.50',
+                       'employee_uuid': '550e8400-e29b-41d4-a716-446655440012',
+                       'employee_name': 'John',
+                       'status': 'COMPLETED',
+                       'created_at': '2026-09-04T12:15:00Z',
+                       'updated_at': '2026-09-04T12:40:00Z'}]}},
+                )
+            ],
+        )
+    },
+)
+class BusinessInstantBookingCompletedListAPIView(APIView):
+    """
+    Business owner views all of their completed instant bookings.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        bookings = (
+            InstantBooking.objects.select_related(
+                "customer",
+                "category",
+                "subcategory",
+                "address",
+                "assigned_business",
+                "assigned_employee",
+            )
+            .filter(
+                assigned_business__owner=request.user,
+                status=InstantBookingStatus.COMPLETED,
+            )
+            .order_by("-updated_at")
+        )
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+
+        page = paginator.paginate_queryset(
+            bookings,
+            request,
+            view=self,
+        )
+
+        serializer = BusinessInstantBookingCompletedSerializer(
+            page,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            {
+                "success": True,
+                "data": serializer.data,
+            }
         )
 
 @extend_schema(

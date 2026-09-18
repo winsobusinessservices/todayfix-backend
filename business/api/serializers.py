@@ -696,6 +696,105 @@ class BusinessApplicationFullSerializer(
         }
 
 
+class BusinessProfileFullSerializer(
+    serializers.ModelSerializer
+):
+    """
+    Full BusinessProfile details for a business owner.
+
+    Used by admin surfaces that need the complete profile
+    record, not just the curated subset exposed by
+    BusinessProfileSerializer.
+    """
+
+    category_uuid = serializers.UUIDField(
+        source="category.cat_uuid",
+        read_only=True,
+    )
+
+    category_name = serializers.CharField(
+        source="category.name",
+        read_only=True,
+    )
+
+    subcategories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BusinessProfile
+
+        fields = (
+            "business_profile_uuid",
+            "name",
+            "description",
+            "email",
+            "phone",
+            "website",
+            "location",
+            "business_type",
+            "category_uuid",
+            "category_name",
+            "subcategories",
+            "is_active",
+            "rank",
+            "created_at",
+            "updated_at",
+        )
+
+        read_only_fields = fields
+
+    def get_subcategories(self, obj):
+        return [
+            {
+                "subcategory_uuid": str(sub.subCat_uuid),
+                "name": sub.name,
+            }
+            for sub in obj.subcategories.all()
+        ]
+
+
+class BusinessApplicationAcceptedSerializer(
+    BusinessApplicationFullSerializer
+):
+    """
+    Used only for the accepted business applications list.
+
+    Extends BusinessApplicationFullSerializer with the
+    BusinessProfile created for the business owner upon
+    approval. The profile is matched by owner + business_type
+    since there is no direct FK from BusinessApplication to
+    BusinessProfile (see BusinessApplicationService.approve).
+    """
+
+    business_profile = serializers.SerializerMethodField()
+
+    class Meta(BusinessApplicationFullSerializer.Meta):
+        fields = BusinessApplicationFullSerializer.Meta.fields + (
+            "business_profile",
+        )
+        read_only_fields = fields
+
+    def get_business_profile(self, obj):
+        profile = getattr(obj, "_business_profile", None)
+
+        if profile is None:
+            profile = (
+                BusinessProfile.objects
+                .filter(
+                    owner=obj.user,
+                    business_type=obj.business_type,
+                )
+                .first()
+            )
+
+        if profile is None:
+            return None
+
+        return BusinessProfileFullSerializer(
+            profile,
+            context=self.context,
+        ).data
+
+
 class RejectBusinessApplicationSerializer(
     serializers.Serializer
 ):
@@ -802,13 +901,93 @@ class BusinessProfileSerializer(
 
     def get_banner_url(self, obj):
         return None
+class AdminBusinessProfileUpdateSerializer(
+    serializers.ModelSerializer
+):
+    """
+    Admin-only serializer to update a business
+    profile's core details. Rank is managed
+    separately via AdminBusinessProfileRankUpdateAPIView.
+    """
 
+    category_uuid = serializers.UUIDField(
+        write_only=True,
+        required=False,
+    )
+
+    class Meta:
+        model = BusinessProfile
+
+        fields = (
+            "name",
+            "description",
+            "email",
+            "phone",
+            "location",
+            "website",
+            "business_type",
+            "category_uuid",
+            "is_active",
+        )
+
+    def validate_business_type(self, value):
+        if value not in BusinessType.values:
+            raise serializers.ValidationError(
+                "Invalid business type."
+            )
+
+        return value
+
+    def validate_category_uuid(self, value):
+        try:
+            category = Category.objects.get(
+                cat_uuid=value,
+                is_active=True,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError(
+                "Category not found or inactive."
+            )
+
+        self._category = category
+        return value
+
+    def validate_phone(self, value):
+        value = value.strip()
+
+        if value and not value.isdigit():
+            raise serializers.ValidationError(
+                "Phone number must contain only digits."
+            )
+
+        if value and len(value) != 10:
+            raise serializers.ValidationError(
+                "Phone number must contain exactly 10 digits."
+            )
+
+        return value
+
+    def update(self, instance, validated_data):
+        if "category_uuid" in validated_data:
+            validated_data.pop("category_uuid")
+            instance.category = self._category
+
+        return super().update(instance, validated_data)
 class PublicBusinessProfileSerializer(serializers.ModelSerializer):
+    business_name = serializers.CharField(
+        source="name"
+    )
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+    services = serializers.SerializerMethodField()
+    business_icon = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = BusinessProfile
         fields = (
             "business_profile_uuid",
-            "name",
+            "business_name",
             "description",
             "phone",
             "email",
@@ -818,8 +997,72 @@ class PublicBusinessProfileSerializer(serializers.ModelSerializer):
             "is_active",
             "rank",
             "created_at",
+            "average_rating",
+            "review_count",
+            "services",
+            "business_icon",
+            "image",
         )
         read_only_fields = fields
+
+    def get_average_rating(self, obj):
+        result = Review.objects.filter(
+            business=obj,
+        ).aggregate(avg=Avg("rating"))
+
+        avg = result["avg"]
+        return round(avg, 1) if avg is not None else None
+
+    def get_review_count(self, obj):
+        return Review.objects.filter(
+            business=obj,
+        ).count()
+
+    def get_services(self, obj):
+        services = Service.objects.filter(
+            business=obj,
+            is_active=True,
+        )
+        return ServiceReadSerializer(
+            services,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_business_icon(self, obj):
+        identity = get_current_business_identity(obj)
+
+        if not identity or not identity.logo:
+            return None
+
+        request = self.context.get("request")
+
+        if request:
+            return request.build_absolute_uri(
+                identity.logo.url
+            )
+
+        return identity.logo.url
+
+    def get_image(self, obj):
+        portfolio = getattr(obj, "portfolio", None)
+
+        if not portfolio:
+            return None
+
+        gallery_image = portfolio.gallery_images.first()
+
+        if not gallery_image:
+            return None
+
+        request = self.context.get("request")
+
+        if request:
+            return request.build_absolute_uri(
+                gallery_image.image.url
+            )
+
+        return gallery_image.image.url
 #=============================================================================================================================
 #                       Create Employee Seriaalizer
 #=============================================================================================================================

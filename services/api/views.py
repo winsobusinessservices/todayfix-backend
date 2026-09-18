@@ -49,6 +49,7 @@ from .serializers import (
     UnitSerializer,
     MyServiceReadSerializer,
     ServiceRankUpdateSerializer,
+    AdminServiceUpdateSerializer,
 )
 
 
@@ -351,6 +352,56 @@ class ServiceUpdateAPIView(UpdateAPIView):
         response_serializer = ServiceReadSerializer(
             service,
         )
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Service updated successfully."
+                ),
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =============================================================
+# UPDATE SERVICE (admin)
+# =============================================================
+
+@extend_schema(
+    tags=["Services"],
+    summary="Update Service (admin)",
+    description=(
+        "Allows an admin to update any service, "
+        "regardless of which business owns it."
+    ),
+    request=AdminServiceUpdateSerializer,
+    responses=ServiceReadSerializer,
+)
+class AdminServiceUpdateAPIView(APIView):
+
+    permission_classes = [
+        IsAdminRole,
+    ]
+
+    def patch(self, request, service_uuid):
+
+        service = get_object_or_404(
+            Service.objects.select_related("business"),
+            service_uuid=service_uuid,
+        )
+
+        serializer = AdminServiceUpdateSerializer(
+            service,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        service = serializer.save()
+
+        response_serializer = ServiceReadSerializer(
+            service,
+        )
 
         return Response(
             {
@@ -367,6 +418,10 @@ class ServiceUpdateAPIView(UpdateAPIView):
 # =============================================================
 # DELETE / DEACTIVATE SERVICE (business owner)
 # =============================================================
+
+
+
+
 
 @extend_schema(
     tags=["Services"],

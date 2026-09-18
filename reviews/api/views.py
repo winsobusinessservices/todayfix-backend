@@ -6,23 +6,30 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Avg, Count, Q
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from bookings.models import Booking
+from instant_bookings.models import InstantBooking
 from reviews.models import Review, ReviewImage
 from reviews.serializers import ReviewSerializer, ReviewCreateSerializer, ReviewUpdateSerializer
 from rest_framework.pagination import PageNumberPagination
 import uuid
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from business.models import BusinessProfile
 class ReviewCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
         tags=["Reviews"],
+        description=(
+            "Provide exactly one of booking_uuid (scheduled booking) "
+            "or instant_booking_uuid (instant booking)."
+        ),
         request={
             "multipart/form-data": {
                 "type": "object",
                 "properties": {
                     "booking_uuid": {"type": "string", "format": "uuid"},
+                    "instant_booking_uuid": {"type": "string", "format": "uuid"},
                     "rating": {"type": "integer", "minimum": 1, "maximum": 5},
                     "message": {"type": "string"},
                     "images": {
@@ -30,10 +37,11 @@ class ReviewCreateAPIView(APIView):
                         "items": {"type": "string", "format": "binary"},
                     },
                 },
-                "required": ["booking_uuid", "rating"],
+                "required": ["rating"],
             }
         },
         responses={201: ReviewSerializer},
+    
     )
     def post(self, request):
         serializer = ReviewCreateSerializer(data=request.data, context={"request": request})
@@ -100,10 +108,20 @@ class RatingSummaryAPIView(APIView):
                 return Response({"success": False, "message": "service_uuid is not a valid UUID."}, status=status.HTTP_400_BAD_REQUEST)
 
         filters = {}
-        if business_uuid: filters["business__business_profile_uuid"] = business_uuid
-        if service_uuid: filters["service__service_uuid"] = service_uuid
-            
-        stats = Review.objects.filter(**filters).aggregate(
+
+        if business_uuid:
+            business = get_object_or_404(
+                BusinessProfile,
+                business_profile_uuid=business_uuid,
+            )
+            filters["business"] = business
+
+        if service_uuid:
+            filters["service__service_uuid"] = service_uuid
+
+        reviews = Review.objects.filter(**filters)
+
+        stats = reviews.aggregate(
             total=Count("id"),
             avg=Avg("rating"),
             s5=Count("id", filter=Q(rating=5)),
@@ -114,6 +132,9 @@ class RatingSummaryAPIView(APIView):
         )
         total = stats["total"] or 0
         avg = round(stats["avg"], 1) if stats["avg"] else 0
+
+        reviews = Review.objects.filter(**filters)
+        review_serializer = ReviewSerializer(reviews, many=True)
         
         return Response({
             "success": True,
@@ -121,8 +142,13 @@ class RatingSummaryAPIView(APIView):
                 "average_rating": avg,
                 "total_reviews": total,
                 "rating_distribution": {
-                    "5": stats["s5"], "4": stats["s4"], "3": stats["s3"], "2": stats["s2"], "1": stats["s1"]
-                }
+                    "5": stats["s5"],
+                    "4": stats["s4"],
+                    "3": stats["s3"],
+                    "2": stats["s2"],
+                    "1": stats["s1"],
+                },
+                "reviews": review_serializer.data,
             }
         })
 
@@ -174,7 +200,28 @@ class ReviewEligibilityAPIView(APIView):
             return Response({"success": True, "data": {"eligible": False, "already_reviewed": False, "reason": "Service must be completed."}})
             
         return Response({"success": True, "data": {"eligible": True, "already_reviewed": False}})
+class ReviewByInstantBookingAPIView(APIView):
+    @extend_schema(tags=["Reviews"])
+    def get(self, request, instant_booking_uuid):
+        review = get_object_or_404(Review, instant_booking__instant_booking_uuid=instant_booking_uuid)
+        serializer = ReviewSerializer(review)
+        return Response({"success": True, "data": serializer.data})
 
+class InstantBookingReviewEligibilityAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    @extend_schema(tags=["Reviews"])
+    def get(self, request, instant_booking_uuid):
+        instant_booking = get_object_or_404(InstantBooking, instant_booking_uuid=instant_booking_uuid)
+        if instant_booking.customer != request.user:
+            return Response({"success": False, "message": "Unauthorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        if hasattr(instant_booking, 'review'):
+            return Response({"success": True, "data": {"eligible": False, "already_reviewed": True}})
+
+        if instant_booking.status != "COMPLETED":
+            return Response({"success": True, "data": {"eligible": False, "already_reviewed": False, "reason": "Service must be completed."}})
+
+        return Response({"success": True, "data": {"eligible": True, "already_reviewed": False}})
 class BusinessReviewsAPIView(APIView):
     @extend_schema(tags=["Reviews"])
     def get(self, request, business_uuid):

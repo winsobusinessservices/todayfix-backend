@@ -1,20 +1,10 @@
 from django.urls import path
 
-from .views import (
-    BusinessInstantBookingCompleteVerifyAPIView,
-    BusinessInstantBookingOfferAcceptAPIView,
-    BusinessInstantBookingOffersAPIView,
-    BusinessInstantBookingCompleteAPIView,
-    BusinessInstantBookingStartAPIView,
-    CustomerInstantBookingCancelAPIView,
-    CustomerInstantBookingDetailAPIView,
-    InstantBookingCreateAPIView,
-    InstantServiceSearchAPIView,
-    CustomerInstantBookingRetryAPIView,
-    BusinessInstantBookingCompleteVerifyAPIView
-)
+
 from .views import (
     BusinessInstantBookingAcceptedListAPIView,
+    BusinessInstantBookingCompletedListAPIView,
+    BusinessInstantBookingCompleteVerifyAPIView,
     BusinessInstantBookingOfferAcceptAPIView,
     BusinessInstantBookingOffersAPIView,
     BusinessInstantBookingCompleteAPIView,
@@ -104,5 +94,10 @@ urlpatterns = [
         "<uuid:instant_booking_uuid>/retry/",
         CustomerInstantBookingRetryAPIView.as_view(),
         name="customer-instant-booking-retry",
+    ),
+    path(
+        "provider/completed/",
+        BusinessInstantBookingCompletedListAPIView.as_view(),
+        name="business-instant-booking-completed-list",
     ),
 ]
