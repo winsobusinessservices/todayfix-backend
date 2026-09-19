@@ -1,7 +1,12 @@
 
 from django.contrib import admin
 
-from .models import CustomUser, PasswordResetToken, PendingRegistration
+from .models import (
+    CustomUser,
+    PasswordResetToken,
+    PendingRegistration,
+    DeletedUser,
+)
 from .models import EmailTemplate
 
 from .models import OTPVerification, Address, SignupOTPVerification, GoogleIdentity
@@ -34,7 +39,57 @@ class CustomUserAdmin(admin.ModelAdmin):
         "is_staff",
     )
 
+@admin.register(DeletedUser)
+class DeletedUserAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "deleted_user_uuid",
+        "original_user_uuid",
+        "original_user_id",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "role",
+        "has_business",
+        "business_verified",
+        "deleted_at",
+    )
 
+    search_fields = (
+        "deleted_user_uuid",
+        "original_user_uuid",
+        "original_user_id",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+    )
+
+    list_filter = (
+        "role",
+        "has_business",
+        "business_verified",
+        "deleted_at",
+    )
+
+    readonly_fields = (
+        "deleted_user_uuid",
+        "original_user_uuid",
+        "original_user_id",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "role",
+        "has_business",
+        "business_verified",
+        "is_verified",
+        "verified_at",
+        "created_at",
+        "deleted_at",
+        "account_data",
+    )
 
 
 @admin.register(PasswordResetToken)

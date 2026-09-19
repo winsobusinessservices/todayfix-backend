@@ -34,6 +34,11 @@ from accounts.models import (
     PasswordResetToken,
     EmailTemplate,
     Address,
+    AccountDeletionRequest,
+    OTPVerification,
+)
+from accounts.services.account_deletion import (
+    AccountDeletionService,
 )
 from accounts.services import (
     AuthService,
@@ -58,7 +63,8 @@ from .serializers import (
     GoogleLoginSerializer,
     SignupVerifyOTPSerializer,
     VerifyPhoneUpdateOTPSerializer,
-    VerifyEmailUpdateSerializer
+    VerifyEmailUpdateSerializer,
+    VerifyAccountDeletionOTPSerializer
 )
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -2187,3 +2193,382 @@ class ProfilePictureViewAPIView(APIView):
         )
 
         return serve_document_file(user.profile_picture)
+
+# =========================================================
+# ACCOUNT DELETION - REQUEST
+# =========================================================
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Request Account Deletion",
+    description=(
+        "Starts the account deletion process by sending an OTP "
+        "to the user's email when available, otherwise to the "
+        "registered phone number."
+    ),
+)
+class RequestAccountDeletionAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(self, request):
+        user = request.user
+
+        if not user.is_active:
+            return Response(
+                {
+                    "success": False,
+                    "message": "This account is inactive.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_request = (
+            AccountDeletionService.get_active_request(user)
+        )
+
+        if existing_request:
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "Account deletion is already pending."
+                    ),
+                    "data": {
+                        "status": existing_request.status,
+                        "scheduled_deletion_at": (
+                            existing_request.scheduled_deletion_at
+                        ),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if user.email:
+            from django.core.mail import send_mail
+
+            from accounts.services.otp_service import (
+                OTPService,
+            )
+
+            otp = OTPService.generate_otp()
+
+            OTPVerification.objects.filter(
+                user=user,
+                purpose=OTPVerification.PURPOSE_ACCOUNT_DELETION,
+                is_used=False,
+            ).update(
+                is_used=True
+            )
+
+            from django.contrib.auth.hashers import make_password
+
+            OTPVerification.objects.create(
+                user=user,
+                phone=user.phone or "",
+                otp_hash=make_password(otp),
+                purpose=OTPVerification.PURPOSE_ACCOUNT_DELETION,
+                provider="EMAIL",
+                expires_at=(
+                    timezone.now()
+                    + timedelta(
+                        minutes=OTPService.OTP_EXPIRY_MINUTES
+                    )
+                ),
+            )
+
+            send_mail(
+                subject="TodayFix Account Deletion OTP",
+                message=(
+                    f"Hi {user.first_name or 'User'},\n\n"
+                    f"Your TodayFix account deletion OTP is {otp}.\n"
+                    "This OTP is valid for 5 minutes."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+
+            verification_method = "email"
+
+        elif user.phone:
+            from accounts.services.otp_service import (
+                OTPService,
+            )
+
+            if not OTPService.can_send_otp(user.phone):
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Please wait 60 seconds before "
+                            "requesting another OTP."
+                        ),
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+
+            OTPService.create_account_deletion_otp(
+                user=user,
+                phone=user.phone,
+            )
+
+            verification_method = "phone"
+
+        else:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "No email address or phone number is "
+                        "available for account deletion verification."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "OTP sent successfully. "
+                    "Please verify the OTP to continue."
+                ),
+                "data": {
+                    "verification_method": verification_method,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ACCOUNT DELETION - VERIFY OTP
+# =========================================================
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Verify Account Deletion OTP",
+    request=VerifyAccountDeletionOTPSerializer,
+)
+class VerifyAccountDeletionOTPAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(self, request):
+        serializer = VerifyAccountDeletionOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        user = request.user
+        otp = serializer.validated_data["otp"]
+
+        otp_record = (
+            OTPVerification.objects
+            .filter(
+                user=user,
+                purpose=OTPVerification.PURPOSE_ACCOUNT_DELETION,
+                is_used=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not otp_record:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "OTP not found. Please request "
+                        "a new OTP."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if timezone.now() > otp_record.expires_at:
+            otp_record.is_used = True
+            otp_record.save(
+                update_fields=["is_used"]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP has expired.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.contrib.auth.hashers import check_password
+
+        if not check_password(
+            otp,
+            otp_record.otp_hash,
+        ):
+            otp_record.attempts += 1
+
+            if otp_record.attempts >= 5:
+                otp_record.is_used = True
+
+            otp_record.save(
+                update_fields=[
+                    "attempts",
+                    "is_used",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid OTP.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        otp_record.is_used = True
+        otp_record.is_verified = True
+        otp_record.verified_at = timezone.now()
+
+        otp_record.save(
+            update_fields=[
+                "is_used",
+                "is_verified",
+                "verified_at",
+            ]
+        )
+
+        deletion_request = (
+            AccountDeletionService.create_request(
+                user=user
+            )
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Account deletion scheduled successfully."
+                ),
+                "data": {
+                    "status": deletion_request.status,
+                    "scheduled_deletion_at": (
+                        deletion_request.scheduled_deletion_at
+                    ),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ACCOUNT DELETION - STATUS
+# =========================================================
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Get Account Deletion Status",
+)
+class AccountDeletionStatusAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(self, request):
+        deletion_request = (
+            AccountDeletionRequest.objects.filter(
+                user=request.user
+            ).first()
+        )
+
+        if not deletion_request:
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "No account deletion request found."
+                    ),
+                    "data": {
+                        "deletion_requested": False,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Account deletion status fetched successfully."
+                ),
+                "data": {
+                    "deletion_requested": (
+                        deletion_request.status
+                        in [
+                            AccountDeletionRequest.STATUS_PENDING,
+                            AccountDeletionRequest.STATUS_ON_HOLD,
+                        ]
+                    ),
+                    "status": deletion_request.status,
+                    "scheduled_deletion_at": (
+                        deletion_request.scheduled_deletion_at
+                    ),
+                    "extension_deadline": (
+                        deletion_request.extension_deadline
+                    ),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# ACCOUNT DELETION - CANCEL
+# =========================================================
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Cancel Account Deletion",
+)
+class CancelAccountDeletionAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(self, request):
+        deletion_request = (
+            AccountDeletionService.cancel_request(
+                request.user
+            )
+        )
+
+        if not deletion_request:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "No active account deletion request found."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Account deletion cancelled successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )

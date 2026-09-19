@@ -226,6 +226,70 @@ class OTPService:
 
         return True, "OTP verified successfully."
 
+    @classmethod
+    def create_account_deletion_otp(
+        cls,
+        user,
+        phone,
+    ):
+        phone = cls.normalize_phone(phone)
+
+        OTPVerification.objects.filter(
+            user=user,
+            purpose=OTPVerification.PURPOSE_ACCOUNT_DELETION,
+            is_used=False,
+        ).update(
+            is_used=True
+        )
+
+        otp = cls.generate_otp()
+        otp_hash = make_password(otp)
+
+        provider = _get_sms_provider()
+        result = provider.send_otp(phone, otp)
+
+        if not result.success:
+            logger.error(
+                "Account deletion OTP SMS delivery failed "
+                "for phone ending %s: %s",
+                phone[-4:],
+                result.error_message,
+            )
+
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError(
+                result.error_message
+                or "Unable to send OTP. Please try again later."
+            )
+
+        OTPVerification.objects.create(
+            user=user,
+            phone=phone,
+            otp_hash=otp_hash,
+            purpose=OTPVerification.PURPOSE_ACCOUNT_DELETION,
+            provider="SMS",
+            external_request_id=(
+                result.external_request_id
+                if result
+                else None
+            ),
+            expires_at=(
+                timezone.now()
+                + timedelta(
+                    minutes=cls.OTP_EXPIRY_MINUTES
+                )
+            ),
+        )
+
+        logger.info(
+            "ACCOUNT DELETION OTP requested | "
+            "Phone ending: %s",
+            phone[-4:],
+        )
+
+        return otp
+
 
 # =============================================================
 # SIGNUP OTP SERVICE
