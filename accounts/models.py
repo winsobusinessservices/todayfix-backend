@@ -102,11 +102,13 @@ class OTPVerification(models.Model):
     PURPOSE_SIGNUP = "SIGNUP"
     PURPOSE_LOGIN = "LOGIN"
     PURPOSE_PHONE_UPDATE = "PHONE_UPDATE"
+    PURPOSE_ACCOUNT_DELETION = "ACCOUNT_DELETION"
 
     PURPOSE_CHOICES = (
         (PURPOSE_SIGNUP, "Signup"),
         (PURPOSE_LOGIN, "Login"),
         (PURPOSE_PHONE_UPDATE, "Phone Update"),
+        (PURPOSE_ACCOUNT_DELETION, "Account Deletion"),
     )
 
     otp_verification_uuid = models.UUIDField(
@@ -477,5 +479,169 @@ class GoogleIdentity(models.Model):
     def __str__(self):
         return f"Google Identity - {self.google_email}"
 
+# =========================================================
+# ACCOUNT DELETION
+# =========================================================
 
+class AccountDeletionRequest(models.Model):
+
+    STATUS_PENDING = "PENDING"
+    STATUS_ON_HOLD = "ON_HOLD"
+    STATUS_CANCELLED = "CANCELLED"
+    STATUS_COMPLETED = "COMPLETED"
+
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ON_HOLD, "On Hold"),
+        (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_COMPLETED, "Completed"),
+    )
+
+    account_deletion_request_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="account_deletion_request",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+
+    requested_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    scheduled_deletion_at = models.DateTimeField()
+
+    hold_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    extension_deadline = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    condition_cleared_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    cancellation_reason = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        ordering = ["-requested_at"]
+
+    def __str__(self):
+        return (
+            f"Account deletion - "
+            f"{self.user_id} - {self.status}"
+        )
+
+
+class DeletedUser(models.Model):
+
+    deleted_user_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+    )
+
+    original_user_uuid = models.UUIDField(
+        db_index=True,
+    )
+
+    original_user_id = models.PositiveBigIntegerField(
+        db_index=True,
+    )
+
+    first_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    last_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    email = models.EmailField(
+        null=True,
+        blank=True,
+    )
+
+    phone = models.CharField(
+        max_length=15,
+        null=True,
+        blank=True,
+    )
+
+    role = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+    )
+
+    has_business = models.BooleanField(
+        default=False,
+    )
+
+    business_verified = models.BooleanField(
+        default=False,
+    )
+
+    is_verified = models.BooleanField(
+        default=False,
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField()
+
+    deleted_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    account_data = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-deleted_at"]
+
+    def __str__(self):
+        return (
+            f"Deleted user - "
+            f"{self.original_user_uuid}"
+        )
+    
         

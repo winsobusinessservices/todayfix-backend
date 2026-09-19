@@ -1679,3 +1679,23 @@ class SignupCompleteSerializer(
             )
 
         return attrs
+
+# =========================================================
+# ACCOUNT DELETION
+# =========================================================
+
+class VerifyAccountDeletionOTPSerializer(
+    serializers.Serializer
+):
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6,
+    )
+
+    def validate_otp(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "OTP must contain only digits."
+            )
+
+        return value

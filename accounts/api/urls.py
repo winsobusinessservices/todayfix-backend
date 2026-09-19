@@ -16,7 +16,10 @@ from .views import (
     VerifyEmailUpdateAPIView,
     ForgotPasswordView,
     UnifiedPasswordResetView,
-
+    RequestAccountDeletionAPIView,
+    VerifyAccountDeletionOTPAPIView,
+    AccountDeletionStatusAPIView,
+    CancelAccountDeletionAPIView,
     
     SignupVerifyOTPAPIView,
 
@@ -160,6 +163,30 @@ urlpatterns = [
         "addresses/<uuid:add_uuid>/delete/",
         DeleteUserAddressAPIView.as_view(),
         name="address-delete",
+    ),
+
+    path(
+        "profile/delete/request/",
+        RequestAccountDeletionAPIView.as_view(),
+        name="profile-delete-request",
+    ),
+
+    path(
+        "profile/delete/verify/",
+        VerifyAccountDeletionOTPAPIView.as_view(),
+        name="profile-delete-verify",
+    ),
+
+    path(
+        "profile/delete/status/",
+        AccountDeletionStatusAPIView.as_view(),
+        name="profile-delete-status",
+    ),
+
+    path(
+        "profile/delete/cancel/",
+        CancelAccountDeletionAPIView.as_view(),
+        name="profile-delete-cancel",
     ),
 
     # =====================================================
