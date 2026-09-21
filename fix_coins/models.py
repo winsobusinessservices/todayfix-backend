@@ -100,6 +100,10 @@ class FixCoinWallet(models.Model):
         default=0,
         help_text="Current spendable Fix-Coins balance",
     )
+    reserved_coins = models.PositiveIntegerField(
+        default=0,
+        help_text="Coins reserved for pending bookings",
+    )
     lifetime_earned_coins = models.PositiveIntegerField(
         default=0,
         help_text="Total coins ever credited",

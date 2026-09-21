@@ -7,6 +7,8 @@ class FixCoinTransactionType(models.TextChoices):
     REDEMPTION = "REDEMPTION", "Redemption"
     REFUND_REVERSAL = "REFUND_REVERSAL", "Refund Reversal"
     EXPIRY = "EXPIRY", "Expiry"
+    RESERVATION = "RESERVATION", "Reservation"
+    RELEASE = "RELEASE", "Release"
     PROMOTIONAL_BONUS = "PROMOTIONAL_BONUS", "Promotional Bonus"
     ADMIN_ADJUSTMENT = "ADMIN_ADJUSTMENT", "Admin Adjustment"
 

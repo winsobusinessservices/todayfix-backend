@@ -182,6 +182,128 @@ def debit_coins(
     return tx
 
 
+def reserve_coins(
+    user,
+    coins: int,
+    description: str = "",
+    reference_type: str = None,
+    reference_id: str = None,
+) -> FixCoinTransaction:
+    """
+    Reserves coins for a pending booking. Moves coins from available to reserved.
+    """
+    if coins <= 0:
+        raise ValidationError("Coins to reserve must be a positive integer.")
+
+    with transaction.atomic():
+        wallet, _ = FixCoinWallet.objects.select_for_update().get_or_create(user=user)
+        balance_before = wallet.available_coins
+
+        if balance_before < coins:
+            raise ValidationError(
+                f"Insufficient Fix-Coins. Available: {balance_before}, requested: {coins}."
+            )
+
+        balance_after = balance_before - coins
+        wallet.available_coins = balance_after
+        wallet.reserved_coins += coins
+        wallet.save(update_fields=["available_coins", "reserved_coins", "updated_at"])
+
+        tx = FixCoinTransaction.objects.create(
+            wallet=wallet,
+            transaction_type=FixCoinTransactionType.RESERVATION,
+            coins=-coins,
+            balance_before=balance_before,
+            balance_after=balance_after,
+            description=description,
+            reference_type=reference_type,
+            reference_id=reference_id,
+        )
+
+    return tx
+
+
+def release_coins(
+    user,
+    coins: int,
+    description: str = "",
+    reference_type: str = None,
+    reference_id: str = None,
+) -> FixCoinTransaction:
+    """
+    Releases reserved coins back to available balance (e.g. if payment fails or cancelled).
+    """
+    if coins <= 0:
+        raise ValidationError("Coins to release must be a positive integer.")
+
+    with transaction.atomic():
+        wallet, _ = FixCoinWallet.objects.select_for_update().get_or_create(user=user)
+        
+        if wallet.reserved_coins < coins:
+            raise ValidationError(
+                f"Cannot release {coins} coins. Only {wallet.reserved_coins} reserved."
+            )
+
+        balance_before = wallet.available_coins
+        balance_after = balance_before + coins
+        
+        wallet.available_coins = balance_after
+        wallet.reserved_coins -= coins
+        wallet.save(update_fields=["available_coins", "reserved_coins", "updated_at"])
+
+        tx = FixCoinTransaction.objects.create(
+            wallet=wallet,
+            transaction_type=FixCoinTransactionType.RELEASE,
+            coins=coins,
+            balance_before=balance_before,
+            balance_after=balance_after,
+            description=description,
+            reference_type=reference_type,
+            reference_id=reference_id,
+        )
+
+    return tx
+
+
+def redeem_reserved_coins(
+    user,
+    coins: int,
+    description: str = "",
+    reference_type: str = None,
+    reference_id: str = None,
+) -> FixCoinTransaction:
+    """
+    Finalizes the redemption of reserved coins. Moves them from reserved to redeemed.
+    """
+    if coins <= 0:
+        raise ValidationError("Coins to redeem must be a positive integer.")
+
+    with transaction.atomic():
+        wallet, _ = FixCoinWallet.objects.select_for_update().get_or_create(user=user)
+        
+        if wallet.reserved_coins < coins:
+            raise ValidationError(
+                f"Cannot redeem {coins} coins. Only {wallet.reserved_coins} reserved."
+            )
+
+        wallet.reserved_coins -= coins
+        wallet.lifetime_redeemed_coins += coins
+        wallet.save(update_fields=["reserved_coins", "lifetime_redeemed_coins", "updated_at"])
+
+        tx = FixCoinTransaction.objects.create(
+            wallet=wallet,
+            transaction_type=FixCoinTransactionType.REDEMPTION,
+            coins=0, # The available balance didn't change in this step, only reserved
+            balance_before=wallet.available_coins,
+            balance_after=wallet.available_coins,
+            description=description,
+            reference_type=reference_type,
+            reference_id=reference_id,
+        )
+
+    return tx
+
+
 def validate_redemption(user, eligible_amount: Decimal, coins_to_redeem: int) -> dict:
     """
     Validates a potential coin redemption against business rules without modifying balance.

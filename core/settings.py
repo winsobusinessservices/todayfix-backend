@@ -63,6 +63,13 @@ INSTALLED_APPS = [
     "notifications",
     "reviews",
     "fix_coins",
+    # Finance & Billing Apps
+    "billing",
+    "payments",
+    "finance",
+    "payouts",
+    "invoices",
+    "reconciliation",
 ]
 
 
