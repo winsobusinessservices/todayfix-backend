@@ -36,6 +36,10 @@ urlpatterns = [
     path("api/notifications/", include("notifications.urls")),
     path("api/reviews/", include("reviews.api.urls")),
     path("api/fix-coins/", include("fix_coins.api.urls")),
+    path("api/billing/", include("billing.urls")),
+    path("api/payments/", include("payments.urls")),
+    path("api/payouts/", include("payouts.urls")),
+    path("api/invoices/", include("invoices.urls")),
 
     
 

@@ -28,3 +28,4 @@ nltk
 mysqlclient
 uvicorn[standard]==0.27.1
 rapidfuzz
+razorpay
