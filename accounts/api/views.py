@@ -52,6 +52,7 @@ from .serializers import (
     LogoutSerializer,
     UpdateProfileSerializer,
     UnifiedPasswordResetSerializer,
+    RequestAccountDeletionSerializer,
     ForgotPasswordSerializer,
     AddressSerializer,
     VerifyEmailSerializer,
@@ -2207,6 +2208,17 @@ class ProfilePictureViewAPIView(APIView):
         "registered phone number."
     ),
 )
+@extend_schema(
+    tags=["Accounts"],
+    summary="Request Account Deletion",
+    description=(
+        "Starts the account deletion process by sending an OTP "
+        "to the user's email when available, otherwise to the "
+        "registered phone number. A BUSINESS-role account must "
+        "also supply its current password."
+    ),
+    request=RequestAccountDeletionSerializer,
+)
 class RequestAccountDeletionAPIView(APIView):
 
     permission_classes = [
@@ -2224,6 +2236,71 @@ class RequestAccountDeletionAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if user.role == UserRole.BUSINESS:
+            serializer = RequestAccountDeletionSerializer(
+                data=request.data
+            )
+            serializer.is_valid(raise_exception=True)
+            password = serializer.validated_data.get("password")
+
+            if not password:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Password is required to delete "
+                            "a business account."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not user.has_usable_password():
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "This account has no password set. "
+                            "Please set a password before deleting "
+                            "your business account."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not user.check_password(password):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Incorrect password.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            from business.models import BusinessProfile
+            from business.services import BusinessDeletionService
+
+            business = BusinessProfile.objects.filter(
+                owner=user,
+                is_active=True,
+            ).first()
+
+            if business and BusinessDeletionService.has_blocking_bookings(
+                business
+            ):
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "You have active business bookings that "
+                            "are still pending, confirmed, assigned, "
+                            "or in progress. Please complete or reject "
+                            "them before requesting account deletion."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         existing_request = (
             AccountDeletionService.get_active_request(user)

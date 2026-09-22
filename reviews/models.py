@@ -78,6 +78,11 @@ class Review(TimeStampedModel):
         blank=True,
         default="",
     )
+
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
     
     class Meta:
         ordering = ["-created_at"]

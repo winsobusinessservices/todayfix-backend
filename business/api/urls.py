@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     AdminApproveBusinessApplicationAPIView,
+    RequestBusinessSwitchToUserAPIView,
+    VerifyBusinessSwitchToUserOTPAPIView,
     AdminBusinessApplicationListAPIView,
     AdminRejectBusinessApplicationAPIView,
     BusinessApplicationCreateAPIView,
@@ -317,6 +319,22 @@ urlpatterns = [
         "portfolio/faqs/<uuid:faq_uuid>/delete/",
         BusinessPortfolioFAQDeleteAPIView.as_view(),
         name="business-portfolio-faq-delete",
+    ),
+
+    # =====================================================
+    # BUSINESS SWITCH TO USER
+    # =====================================================
+
+    path(
+        "switch-to-user/request/",
+        RequestBusinessSwitchToUserAPIView.as_view(),
+        name="business-switch-to-user-request",
+    ),
+
+    path(
+        "switch-to-user/verify/",
+        VerifyBusinessSwitchToUserOTPAPIView.as_view(),
+        name="business-switch-to-user-verify",
     ),
 
 ]

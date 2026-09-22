@@ -18,6 +18,7 @@ from .models import (
     BusinessUpgradeBankAccount,
     BusinessUpgradeIdentity,
     BusinessUpgradeRequest,
+    DeletedBusinessIdentity,
     Employee,
     EmployeeWorkingSchedule,
 )
@@ -985,6 +986,185 @@ class BusinessPortfolioService:
                 )
 
         return portfolio
+
+
+class BusinessDeletionService:
+    """
+    Shared logic for tearing down a BusinessProfile, used by both:
+      - full account deletion (a BUSINESS-role user deletes their
+        whole account), via accounts.services.account_deletion
+      - business switch-to-user (owner keeps their account, drops
+        the business), via BusinessSwitchToUserService below
+
+    Bookings/employees/provider working schedules are intentionally
+    left untouched — they stay in the DB exactly as-is, and will
+    display under the business's new "Deleted_Business" name since
+    they're linked to it by foreign key.
+    """
+
+    RENAMED_BUSINESS_NAME = "Deleted_Business"
+
+    @staticmethod
+    def has_blocking_bookings(business):
+        """
+        True if the business has any scheduled OR instant booking
+        that is still pending, confirmed/assigned, or in progress.
+        """
+        from bookings.choices import BookingStatus
+        from bookings.models import Booking
+        from instant_bookings.models import (
+            InstantBooking,
+            InstantBookingStatus,
+        )
+
+        scheduled_blocked = Booking.objects.filter(
+            business=business,
+            status__in=[
+                BookingStatus.PENDING,
+                BookingStatus.CONFIRMED,
+                BookingStatus.IN_PROGRESS,
+            ],
+        ).exists()
+
+        if scheduled_blocked:
+            return True
+
+        instant_blocking_statuses = [
+            InstantBookingStatus.ASSIGNED,
+            InstantBookingStatus.IN_PROGRESS,
+        ]
+
+        return InstantBooking.objects.filter(
+            assigned_business=business,
+            status__in=instant_blocking_statuses,
+        ).exists()
+    @staticmethod
+    def _snapshot_identity(identity):
+        return {
+            "pan_number": identity.pan_number,
+            "pan_document_name": identity.pan_document_name,
+            "pan_document_type": identity.pan_document_type,
+            "aadhaar_number": identity.aadhaar_number,
+            "aadhaar_document_name": identity.aadhaar_document_name,
+            "aadhaar_document_type": identity.aadhaar_document_type,
+            "gst_number": identity.gst_number,
+            "udyam_number": identity.udyam_number,
+            "labour_license_number": identity.labour_license_number,
+            "bbmp_license_number": identity.bbmp_license_number,
+            "food_license_number": identity.food_license_number,
+            "internal_store_name": identity.internal_store_name,
+            "internal_store_type": identity.internal_store_type,
+            "external_store_name": identity.external_store_name,
+            "external_store_type": identity.external_store_type,
+            "cancelled_gst_bill_book_name": (
+                identity.cancelled_gst_bill_book_name
+            ),
+            "cancelled_gst_bill_book_type": (
+                identity.cancelled_gst_bill_book_type
+            ),
+            "logo_name": identity.logo_name,
+            "logo_type": identity.logo_type,
+            "website": identity.website,
+        }
+
+    @classmethod
+    def archive_and_remove_identity(cls, business):
+        """
+        Copies the business's current BusinessIdentity into
+        DeletedBusinessIdentity, then deletes the original row.
+        No-op if the business has no identity on file.
+        """
+        identity = get_current_business_identity(business)
+
+        if identity is None:
+            return None
+
+        deleted_identity = DeletedBusinessIdentity.objects.create(
+            original_business_identity_uuid=(
+                identity.business_identity_uuid
+            ),
+            original_business_application_id=identity.application_id,
+            business_profile_uuid=business.business_profile_uuid,
+            owner_user_uuid=business.owner.user_uuid,
+            business_name=business.name,
+            business_type=business.business_type,
+            identity_data=cls._snapshot_identity(identity),
+        )
+
+        identity.delete()
+
+        return deleted_identity
+
+    @classmethod
+    def deactivate_related(cls, business):
+        """
+        Renames the business, deactivates it, its portfolio, its
+        reviews and its service cards. Employees, working
+        schedules and bookings are left untouched.
+        """
+        business.name = cls.RENAMED_BUSINESS_NAME
+        business.is_active = False
+        business.save(
+            update_fields=["name", "is_active", "updated_at"]
+        )
+
+        portfolio = getattr(business, "portfolio", None)
+
+        if portfolio is not None:
+            portfolio.is_active = False
+            portfolio.save(
+                update_fields=["is_active", "updated_at"]
+            )
+
+        from reviews.models import Review
+
+        Review.objects.filter(business=business).update(
+            is_active=False
+        )
+
+        from services.models import Service
+
+        Service.objects.filter(business=business).update(
+            is_active=False
+        )
+
+    @classmethod
+    @transaction.atomic
+    def delete_business(cls, business):
+        cls.archive_and_remove_identity(business)
+        cls.deactivate_related(business)
+
+        return business
+
+
+class BusinessSwitchToUserService:
+    """
+    Downgrades a BUSINESS-role owner to a plain USER, deleting
+    their business profile the same way BusinessDeletionService
+    does, without touching the CustomUser account itself.
+    """
+
+    @classmethod
+    @transaction.atomic
+    def switch_to_user(cls, business):
+        user = business.owner
+
+        BusinessDeletionService.delete_business(business)
+
+        user.role = UserRole.USER
+        user.has_business = False
+        user.business_verified = False
+
+        user.save(
+            update_fields=[
+                "role",
+                "has_business",
+                "business_verified",
+                "updated_at",
+            ]
+        )
+
+        return user
 
 
 

@@ -103,12 +103,14 @@ class OTPVerification(models.Model):
     PURPOSE_LOGIN = "LOGIN"
     PURPOSE_PHONE_UPDATE = "PHONE_UPDATE"
     PURPOSE_ACCOUNT_DELETION = "ACCOUNT_DELETION"
+    PURPOSE_BUSINESS_SWITCH_TO_USER = "SWITCH_TO_USER"
 
     PURPOSE_CHOICES = (
         (PURPOSE_SIGNUP, "Signup"),
         (PURPOSE_LOGIN, "Login"),
         (PURPOSE_PHONE_UPDATE, "Phone Update"),
         (PURPOSE_ACCOUNT_DELETION, "Account Deletion"),
+        (PURPOSE_BUSINESS_SWITCH_TO_USER, "Business Switch To User"),
     )
 
     otp_verification_uuid = models.UUIDField(

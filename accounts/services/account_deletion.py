@@ -51,11 +51,28 @@ class AccountDeletionService:
 
     @classmethod
     def has_incomplete_bookings(cls, user):
-        return Booking.objects.filter(
+        if Booking.objects.filter(
             user=user,
         ).exclude(
             status=BookingStatus.COMPLETED,
-        ).exists()
+        ).exists():
+            return True
+
+        if getattr(user, "role", None) == "BUSINESS":
+            from business.models import BusinessProfile
+            from business.services import BusinessDeletionService
+
+            business = BusinessProfile.objects.filter(
+                owner=user,
+                is_active=True,
+            ).first()
+
+            if business and BusinessDeletionService.has_blocking_bookings(
+                business
+            ):
+                return True
+
+        return False
 
     @classmethod
     def are_conditions_clear(cls, user):
@@ -73,6 +90,44 @@ class AccountDeletionService:
             return existing_request
 
         now = timezone.now()
+
+        # `AccountDeletionRequest.user` is a OneToOneField, so a
+        # user can only ever have a single row. If they previously
+        # cancelled (or otherwise ended) a request, that row still
+        # exists - reset it instead of inserting a new one, or the
+        # unique constraint on user_id raises an IntegrityError.
+        previous_request = AccountDeletionRequest.objects.filter(
+            user=user,
+        ).first()
+
+        if previous_request:
+            previous_request.status = (
+                AccountDeletionRequest.STATUS_PENDING
+            )
+            previous_request.scheduled_deletion_at = (
+                now + cls.GRACE_PERIOD
+            )
+            previous_request.hold_started_at = None
+            previous_request.extension_deadline = None
+            previous_request.condition_cleared_at = None
+            previous_request.completed_at = None
+            previous_request.cancelled_at = None
+            previous_request.cancellation_reason = ""
+
+            previous_request.save(
+                update_fields=[
+                    "status",
+                    "scheduled_deletion_at",
+                    "hold_started_at",
+                    "extension_deadline",
+                    "condition_cleared_at",
+                    "completed_at",
+                    "cancelled_at",
+                    "cancellation_reason",
+                ]
+            )
+
+            return previous_request
 
         return AccountDeletionRequest.objects.create(
             user=user,
@@ -156,6 +211,22 @@ class AccountDeletionService:
         if not cls.are_conditions_clear(user):
             return False
 
+        is_business_account = (
+            getattr(user, "role", None) == "BUSINESS"
+        )
+
+        if is_business_account:
+            from business.models import BusinessProfile
+            from business.services import BusinessDeletionService
+
+            business = BusinessProfile.objects.filter(
+                owner=user,
+                is_active=True,
+            ).first()
+
+            if business:
+                BusinessDeletionService.delete_business(business)
+
         DeletedUser.objects.create(
             original_user_uuid=user.user_uuid,
             original_user_id=user.id,
@@ -192,8 +263,12 @@ class AccountDeletionService:
             },
         )
 
-        user.first_name = "Anonymous"
-        user.last_name = "User"
+        user.first_name = (
+            "Deleted" if is_business_account else "Deleted"
+        )
+        user.last_name = (
+            "Business" if is_business_account else "User"
+        )
         user.email = None
         user.phone = None
         user.profile_picture = None

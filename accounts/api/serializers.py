@@ -1699,3 +1699,15 @@ class VerifyAccountDeletionOTPSerializer(
             )
 
         return value
+
+class RequestAccountDeletionSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={"input_type": "password"},
+        help_text=(
+            "Required only when the account being deleted is a "
+            "BUSINESS-role account."
+        ),
+    )
