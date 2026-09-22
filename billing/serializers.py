@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 from .models import BillingRecord, BillingItem
 
@@ -54,10 +55,10 @@ class BillingRecordSerializer(serializers.ModelSerializer):
 class BillingPreviewRequestSerializer(serializers.Serializer):
     booking_uuid = serializers.UUIDField(required=False, allow_null=True)
     instant_booking_uuid = serializers.UUIDField(required=False, allow_null=True)
-    extended_service_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00")
-    material_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00")
-    travel_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00")
-    tip_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00")
+    extended_service_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00", min_value=Decimal("0.00"))
+    material_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00", min_value=Decimal("0.00"))
+    travel_amount = serializers.DecimalField(max_digits=10, decimal_places=2, default="0.00", min_value=Decimal("0.00"))
+    tip_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, min_value=Decimal("0.00"))
     fix_coins_to_redeem = serializers.IntegerField(default=0, min_value=0)
 
     def validate(self, attrs):
@@ -82,3 +83,9 @@ class BillingPreviewResponseSerializer(serializers.Serializer):
     discount_total = serializers.DecimalField(max_digits=10, decimal_places=2)
     gross_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     payable_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+class BillingAdjustmentRequestSerializer(serializers.Serializer):
+    extended_service_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, min_value=Decimal("0.00"))
+    material_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, min_value=Decimal("0.00"))
+    travel_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, min_value=Decimal("0.00"))
+    tip_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, min_value=Decimal("0.00"))
