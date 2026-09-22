@@ -95,7 +95,17 @@ class BillingRecord(TimeStampedModel):
                     models.Q(booking__isnull=True, instant_booking__isnull=False)
                 ),
                 name="billing_record_exactly_one_booking_type",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["booking", "status"],
+                condition=models.Q(status=BillingStatus.DRAFT),
+                name="unique_draft_per_booking"
+            ),
+            models.UniqueConstraint(
+                fields=["instant_booking", "status"],
+                condition=models.Q(status=BillingStatus.DRAFT),
+                name="unique_draft_per_instant_booking"
+            ),
         ]
 
     def clean(self):

@@ -10,6 +10,58 @@ logger = logging.getLogger(__name__)
 
 class BillingService:
     @staticmethod
+    def _validate_amounts(extended, material, travel, tip):
+        if extended < 0 or material < 0 or travel < 0 or tip < 0:
+            raise ValueError("Amounts cannot be negative.")
+
+    @staticmethod
+    def validate_billable_booking(booking=None, instant_booking=None):
+        from bookings.choices import BookingStatus
+        from instant_bookings.models import InstantBookingStatus
+        
+        if booking:
+            if booking.status in [BookingStatus.CANCELLED, BookingStatus.REJECTED]:
+                raise ValueError("Billing cannot be created for a cancelled booking.")
+        elif instant_booking:
+            if instant_booking.status in [InstantBookingStatus.CANCELLED, InstantBookingStatus.EXPIRED, InstantBookingStatus.NO_PROVIDER]:
+                raise ValueError("Billing cannot be created for a cancelled booking.")
+
+    @staticmethod
+    def _create_billing_items(record: BillingRecord):
+        from .choices import BillingItemType
+        items_to_create = []
+        
+        components = [
+            (BillingItemType.SERVICE, "Service Charge", record.service_amount, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.EXTENDED_SERVICE, "Extended Service", record.extended_service_amount, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.MATERIAL, "Material Charge", record.material_amount, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.TRAVEL, "Travel Charge", record.travel_amount, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.TIP, "Tip", record.tip_amount, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.PLATFORM_FEE, "Platform Fee", record.platform_fee, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.BOOKING_FEE, "Booking Fee", record.booking_fee, Decimal("0.00"), Decimal("0.00")),
+            (BillingItemType.TAX, "Tax", record.tax_amount, record.tax_amount, record.calculation_snapshot.get("gst_percentage", Decimal("0.00"))),
+        ]
+        
+        if record.fix_coin_discount > 0:
+            components.append((BillingItemType.DISCOUNT, "Fix Coins Discount", -record.fix_coin_discount, Decimal("0.00"), Decimal("0.00")))
+            
+        for item_type, desc, amount, tax_amt, tax_rate in components:
+            if amount != Decimal("0.00"):
+                items_to_create.append(BillingItem(
+                    billing=record,
+                    item_type=item_type,
+                    description=desc,
+                    quantity=Decimal("1.00"),
+                    unit_price=amount,
+                    tax_rate=tax_rate,
+                    tax_amount=tax_amt,
+                    line_amount=amount
+                ))
+                
+        if items_to_create:
+            BillingItem.objects.bulk_create(items_to_create)
+
+    @staticmethod
     def calculate_from_booking(booking, **kwargs) -> dict:
         """
         Calculates billing components based on a standard Booking.
@@ -23,6 +75,8 @@ class BillingService:
         travel = kwargs.get("travel_amount", Decimal("0.00"))
         tip = kwargs.get("tip_amount", Decimal("0.00"))
         gst_percentage = kwargs.get("gst_percentage", Decimal("18.00")) # Default 18% if not passed
+        
+        BillingService._validate_amounts(extended_service, material, travel, tip)
         
         # fix_coin_discount will be handled in Phase 4 integration, but we can accept it for preview
         fix_coin_discount = kwargs.get("fix_coin_discount", Decimal("0.00"))
@@ -55,6 +109,8 @@ class BillingService:
         # Override tip if provided dynamically
         tip = kwargs.get("tip_amount", tip)
         
+        BillingService._validate_amounts(extended_service, material, travel, tip)
+        
         fix_coin_discount = kwargs.get("fix_coin_discount", Decimal("0.00"))
         
         calculator = BillingCalculator(
@@ -75,9 +131,17 @@ class BillingService:
         if bool(booking) == bool(instant_booking):
             raise ValueError("Provide exactly one of booking or instant_booking.")
             
+        BillingService.validate_billable_booking(booking, instant_booking)
+            
         if booking:
+            existing_draft = BillingRecord.objects.filter(booking=booking, status=BillingStatus.DRAFT).first()
+            if existing_draft:
+                return existing_draft
             calc_result = BillingService.calculate_from_booking(booking, **kwargs)
         else:
+            existing_draft = BillingRecord.objects.filter(instant_booking=instant_booking, status=BillingStatus.DRAFT).first()
+            if existing_draft:
+                return existing_draft
             calc_result = BillingService.calculate_from_instant_booking(instant_booking, **kwargs)
             
         record = BillingRecord.objects.create(
@@ -103,6 +167,8 @@ class BillingService:
             status=BillingStatus.DRAFT,
             calculation_snapshot=calc_result,
         )
+        
+        BillingService._create_billing_items(record)
         
         return record
 
@@ -144,6 +210,8 @@ class BillingService:
         booking = billing_record.booking
         instant_booking = billing_record.instant_booking
         
+        BillingService.validate_billable_booking(booking, instant_booking)
+        
         if booking:
             calc_result = BillingService.calculate_from_booking(booking, **kwargs)
         else:
@@ -173,4 +241,7 @@ class BillingService:
             status=BillingStatus.DRAFT,
             calculation_snapshot=calc_result,
         )
+        
+        BillingService._create_billing_items(adjusted_record)
+        
         return adjusted_record

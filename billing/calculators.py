@@ -27,7 +27,7 @@ class PlatformFeeCalculator:
                     break
                     
         if not applicable_rule:
-            return Decimal("0.00")
+            raise ValueError("No applicable platform fee rule configured for this amount.")
             
         return calculate_percentage(base_amount, applicable_rule.percentage)
 
@@ -56,7 +56,7 @@ class BookingFeeCalculator:
                     break
                     
         if not applicable_rule:
-            return Decimal("0.00")
+            raise ValueError("No applicable booking fee rule configured for this amount.")
             
         if applicable_rule.fee_type == FeeType.PERCENTAGE:
             return calculate_percentage(base_amount, applicable_rule.fee_value)

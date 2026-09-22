@@ -16,6 +16,7 @@ from .serializers import (
     BillingRecordSerializer,
     BillingPreviewRequestSerializer,
     BillingPreviewResponseSerializer,
+    BillingAdjustmentRequestSerializer,
 )
 from .services import BillingService
 from .choices import BillingStatus
@@ -33,10 +34,13 @@ class BillingViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         if user.role == "ADMIN":
             return BillingRecord.objects.all()
-        # Ensure customers only see their own
+        # Ensure customers only see their own, and business owners see their jobs
         return BillingRecord.objects.filter(
-            models.Q(booking__user=user) | models.Q(instant_booking__customer=user)
-        )
+            models.Q(booking__user=user) | 
+            models.Q(instant_booking__customer=user) |
+            models.Q(booking__business__owner=user) |
+            models.Q(instant_booking__assigned_business__owner=user)
+        ).distinct()
 
     @extend_schema(
         tags=["Billing"],
@@ -61,13 +65,21 @@ class BillingViewSet(viewsets.ReadOnlyModelViewSet):
             if booking.user != request.user and request.user.role != "ADMIN":
                 return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
                 
-            calc_result = BillingService.calculate_from_booking(booking, **data)
+            try:
+                BillingService.validate_billable_booking(booking=booking)
+                calc_result = BillingService.calculate_from_booking(booking, **data)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         else:
             instant_booking = get_object_or_404(InstantBooking, instant_booking_uuid=instant_uuid)
             if instant_booking.customer != request.user and request.user.role != "ADMIN":
                 return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
                 
-            calc_result = BillingService.calculate_from_instant_booking(instant_booking, **data)
+            try:
+                BillingService.validate_billable_booking(instant_booking=instant_booking)
+                calc_result = BillingService.calculate_from_instant_booking(instant_booking, **data)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             
         # If FixCoins redemption is requested, validate it and apply the discount
         coins_to_redeem = data.get("fix_coins_to_redeem", 0)
@@ -173,3 +185,36 @@ class BillingViewSet(viewsets.ReadOnlyModelViewSet):
             qs = BillingRecord.objects.filter(instant_booking=record.instant_booking).order_by("version")
             
         return Response(BillingRecordSerializer(qs, many=True).data)
+
+    @extend_schema(
+        tags=["Billing"],
+        request=BillingAdjustmentRequestSerializer,
+        responses={201: BillingRecordSerializer}
+    )
+    @action(detail=True, methods=["post"])
+    def adjust(self, request, billing_uuid=None):
+        from django.db import transaction
+        
+        serializer = BillingAdjustmentRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        record = self.get_object()
+        
+        user = request.user
+        if user.role != "ADMIN":
+            is_owner = False
+            if record.booking and getattr(record.booking, 'business', None) and record.booking.business.owner == user:
+                is_owner = True
+            elif record.instant_booking and getattr(record.instant_booking, 'assigned_business', None) and record.instant_booking.assigned_business.owner == user:
+                is_owner = True
+                
+            if not is_owner:
+                return Response({"detail": "You do not have permission to adjust billing."}, status=status.HTTP_403_FORBIDDEN)
+                
+        try:
+            with transaction.atomic():
+                locked_record = BillingRecord.objects.select_for_update().get(pk=record.pk)
+                adjusted = BillingService.adjust_billing(locked_record, **serializer.validated_data)
+                return Response(BillingRecordSerializer(adjusted).data, status=status.HTTP_201_CREATED)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
