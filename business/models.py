@@ -509,6 +509,73 @@ class BusinessIdentity(TimeStampedModel):
         )
 
 
+class DeletedBusinessIdentity(TimeStampedModel):
+    """
+    Snapshot of a BusinessIdentity moved here when a business
+    profile is deleted (either full account deletion or
+    switch-to-user). The original BusinessIdentity row is removed
+    once its data is copied here.
+
+    File fields (PAN/Aadhaar/store photos etc.) are NOT copied,
+    only their names/types are kept for reference.
+    """
+
+    deleted_business_identity_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    original_business_identity_uuid = models.UUIDField(
+        db_index=True,
+    )
+
+    original_business_application_id = models.PositiveBigIntegerField(
+        db_index=True,
+    )
+
+    business_profile_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    owner_user_uuid = models.UUIDField(
+        db_index=True,
+    )
+
+    business_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
+    business_type = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+    )
+
+    identity_data = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    deleted_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["-deleted_at"]
+
+    def __str__(self):
+        return (
+            f"Deleted Business Identity - "
+            f"{self.business_name}"
+        )
+
+
 class BusinessBankAccount(TimeStampedModel):
     """
     Bank account details.
@@ -1386,6 +1453,11 @@ class BusinessPortfolio(TimeStampedModel):
     instagram_url = models.URLField(blank=True, default="")
     twitter_url = models.URLField(blank=True, default="")
     linkedin_url = models.URLField(blank=True, default="")
+
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
 
     class Meta:
         ordering = ["-created_at"]

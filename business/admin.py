@@ -8,6 +8,7 @@ from .models import (
     BusinessPortfolioFAQ,
     BusinessPortfolioGalleryImage,
     BusinessProfile,
+    DeletedBusinessIdentity,
     Employee,
     ProviderAvailability,
     EmployeeWorkingSchedule,
@@ -15,6 +16,24 @@ from .models import (
     BusinessUpgradeIdentity,
     BusinessUpgradeBankAccount,
 )
+
+
+@admin.register(DeletedBusinessIdentity)
+class DeletedBusinessIdentityAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "deleted_business_identity_uuid",
+        "business_name",
+        "business_type",
+        "owner_user_uuid",
+        "deleted_at",
+    )
+
+    search_fields = (
+        "deleted_business_identity_uuid",
+        "business_name",
+        "owner_user_uuid",
+    )
 
 
 @admin.register(BusinessApplication)

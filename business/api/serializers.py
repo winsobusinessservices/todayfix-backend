@@ -2341,3 +2341,25 @@ class BusinessPortfolioPublicSerializer(serializers.ModelSerializer):
             schedules,
             many=True,
         ).data
+
+class VerifyBusinessSwitchToUserOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6,
+    )
+
+    def validate_otp(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "OTP must contain only digits."
+            )
+
+        return value
+
+class RequestBusinessSwitchToUserSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        write_only=True,
+        style={"input_type": "password"},
+    )
+
+

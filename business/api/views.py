@@ -15,12 +15,21 @@ from rest_framework.parsers import (
     MultiPartParser,
 )
 
+from datetime import timedelta
+
+from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.mail import send_mail
+from django.utils import timezone
+
 from bookings.models import BookingEmployee 
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.choices import UserRole
+from accounts.models import OTPVerification
+from accounts.services.otp_service import OTPService
 
 from ..choices import BusinessApplicationStatus, BusinessType, DayOfWeek, EmployeeAvailabilityStatus, ResponseTime
 from ..models import (
@@ -41,7 +50,9 @@ from ..models import (
 from ..permissions import IsAdminRole, IsApprovedBusiness, IsEmployeeManagementAllowed
 from ..services import (
     BusinessApplicationService,
+    BusinessDeletionService,
     BusinessPortfolioService,
+    BusinessSwitchToUserService,
     BusinessUpgradeService,
     get_current_business_identity,
     send_business_email_raw
@@ -58,6 +69,8 @@ from .serializers import (
     BusinessPortfolioRequestDocSerializer,
     BusinessPortfolioWriteSerializer,
     BusinessProfileSerializer,
+    VerifyBusinessSwitchToUserOTPSerializer,
+    RequestBusinessSwitchToUserSerializer,
     RejectBusinessApplicationSerializer,
     EmployeeCreateSerializer,
     EmployeeListSerializer,
@@ -4199,4 +4212,326 @@ class BusinessPortfolioFAQDeleteAPIView(APIView):
                 "success": True,
                 "message": "FAQ deleted successfully.",
             }
+        )
+
+# =========================================================
+# BUSINESS SWITCH TO USER - REQUEST
+# =========================================================
+
+@extend_schema(
+    tags=["Business Profile"],
+    summary="Request business switch-to-user",
+    description=(
+        "Starts the business switch-to-user process: verifies the "
+        "owner's password, checks there are no pending/in-progress "
+        "bookings, then sends an OTP to email (or phone if no "
+        "email is on file)."
+    ),
+    request=RequestBusinessSwitchToUserSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="OTP sent successfully.",
+        ),
+    },
+)
+class RequestBusinessSwitchToUserAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    def post(self, request):
+        serializer = RequestBusinessSwitchToUserSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        password = serializer.validated_data["password"]
+        password = request.data.get("password")
+
+        if not password:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Password is required to switch your "
+                        "business account to a user account."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.has_usable_password():
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This account has no password set. "
+                        "Please set a password before switching "
+                        "to a user account."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.check_password(password):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Incorrect password.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        business = BusinessProfile.objects.filter(
+            owner=user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if BusinessDeletionService.has_blocking_bookings(business):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You have bookings that are still pending "
+                        "or in progress. Please complete or cancel "
+                        "them before switching to a user account."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.email:
+            otp = OTPService.generate_otp()
+
+            OTPVerification.objects.filter(
+                user=user,
+                purpose=OTPVerification.PURPOSE_BUSINESS_SWITCH_TO_USER,
+                is_used=False,
+            ).update(
+                is_used=True
+            )
+
+            OTPVerification.objects.create(
+                user=user,
+                phone=user.phone or "",
+                otp_hash=make_password(otp),
+                purpose=OTPVerification.PURPOSE_BUSINESS_SWITCH_TO_USER,
+                provider="EMAIL",
+                expires_at=(
+                    timezone.now()
+                    + timedelta(
+                        minutes=OTPService.OTP_EXPIRY_MINUTES
+                    )
+                ),
+            )
+
+            send_mail(
+                subject="TodayFix Business Account Switch OTP",
+                message=(
+                    f"Hi {user.first_name or 'User'},\n\n"
+                    f"Your OTP to switch your business account to "
+                    f"a user account is {otp}.\n"
+                    "This OTP is valid for 5 minutes."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+
+            verification_method = "email"
+
+        elif user.phone:
+            if not OTPService.can_send_otp(user.phone):
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Please wait 60 seconds before "
+                            "requesting another OTP."
+                        ),
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+
+            OTPService.create_purposed_otp(
+                user=user,
+                phone=user.phone,
+                purpose=OTPVerification.PURPOSE_BUSINESS_SWITCH_TO_USER,
+            )
+
+            verification_method = "phone"
+
+        else:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "No email address or phone number is "
+                        "available for verification."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "OTP sent successfully. Please verify the "
+                    "OTP to continue."
+                ),
+                "data": {
+                    "verification_method": verification_method,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# BUSINESS SWITCH TO USER - VERIFY OTP
+# =========================================================
+
+@extend_schema(
+    tags=["Business Profile"],
+    summary="Verify business switch-to-user OTP",
+    description=(
+        "Verifies the OTP sent by the request step, re-checks "
+        "there are no pending/in-progress bookings, then "
+        "immediately downgrades the business owner to a normal "
+        "user and deactivates their business profile."
+    ),
+    request=VerifyBusinessSwitchToUserOTPSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Switched to a user account successfully.",
+        ),
+    },
+)
+class VerifyBusinessSwitchToUserOTPAPIView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsApprovedBusiness,
+    ]
+
+    def post(self, request):
+        serializer = VerifyBusinessSwitchToUserOTPSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        otp = serializer.validated_data["otp"]
+
+        otp_record = (
+            OTPVerification.objects
+            .filter(
+                user=user,
+                purpose=OTPVerification.PURPOSE_BUSINESS_SWITCH_TO_USER,
+                is_used=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not otp_record:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "OTP not found. Please request a new OTP."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if timezone.now() > otp_record.expires_at:
+            otp_record.is_used = True
+            otp_record.save(update_fields=["is_used"])
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP has expired.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not check_password(otp, otp_record.otp_hash):
+            otp_record.attempts += 1
+
+            if otp_record.attempts >= 5:
+                otp_record.is_used = True
+
+            otp_record.save(
+                update_fields=["attempts", "is_used"]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid OTP.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        otp_record.is_used = True
+        otp_record.is_verified = True
+        otp_record.verified_at = timezone.now()
+        otp_record.save(
+            update_fields=["is_used", "is_verified", "verified_at"]
+        )
+
+        business = BusinessProfile.objects.filter(
+            owner=user,
+            is_active=True,
+        ).first()
+
+        if not business:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active business profile found.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if BusinessDeletionService.has_blocking_bookings(business):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You have bookings that are still pending "
+                        "or in progress. Please complete or cancel "
+                        "them before switching to a user account."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        BusinessSwitchToUserService.switch_to_user(business)
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Your business account has been switched to "
+                    "a user account successfully."
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
