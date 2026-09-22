@@ -774,9 +774,10 @@ class UpdateProfileAPIView(APIView):
                     },
                     status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
-            otp = OTPService.create_otp(
+            otp = OTPService.create_purposed_otp(
                 user=request.user,
                 phone=new_phone,
+                purpose=OTPVerification.PURPOSE_PHONE_UPDATE,
             )
             logger.info(
                 "PHONE UPDATE OTP requested | Phone: %s | Expires: 5 min",
@@ -896,6 +897,23 @@ class VerifyPhoneUpdateOTPAPIView(APIView):
         )
         user = request.user
         new_phone = serializer.validated_data["phone"]
+        otp = serializer.validated_data["otp"]
+
+        success, message = OTPService.verify_otp(
+            user=user,
+            phone=new_phone,
+            otp=otp,
+            purpose=OTPVerification.PURPOSE_PHONE_UPDATE,
+        )
+
+        if not success:
+            return Response(
+                {
+                    "success": False,
+                    "message": message,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             with transaction.atomic():
