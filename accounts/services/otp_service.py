@@ -143,6 +143,7 @@ class OTPService:
         user,
         phone,
         otp,
+        purpose=OTPVerification.PURPOSE_LOGIN,
     ):
 
         phone = cls.normalize_phone(phone)
@@ -152,6 +153,7 @@ class OTPService:
             .filter(
                 user=user,
                 phone=phone,
+                purpose=purpose,
                 is_used=False,
             )
             .order_by("-created_at")
