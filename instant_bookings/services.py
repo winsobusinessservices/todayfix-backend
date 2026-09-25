@@ -30,6 +30,9 @@ from instant_bookings.utils.geo import (
     extract_coordinates,
 )
 
+from billing.calculators import TravelFeeCalculator, PlatformFeeCalculator
+from billing.choices import BookingType
+
 from services.models import Service, ServiceEmployee
 
 
@@ -38,8 +41,8 @@ class InstantBookingQuoteService:
     Finds eligible providers and calculates the instant quote.
 
     Travel charging rule:
-        First 5 km is free.
-        Only kilometres above 5 km are chargeable.
+        Free distance and per-km rate come from the admin-configured
+        TravelFeeRule (billing app), shared with scheduled bookings.
 
     Final price:
         service price
@@ -48,7 +51,6 @@ class InstantBookingQuoteService:
         + GST
     """
 
-    FREE_TRAVEL_DISTANCE_KM = Decimal("5.00")
     PROVIDER_SPEED_KMH = 30
     FUZZY_MATCH_THRESHOLD = 70
     MINIMUM_MATCHING_WORD_LENGTH = 3
@@ -378,14 +380,7 @@ class InstantBookingQuoteService:
             / len(candidates)
         )
 
-        # Only distance above the first free 5 km is chargeable.
-        chargeable_distance = max(
-            Decimal("0.00"),
-            average_distance
-            - cls.FREE_TRAVEL_DISTANCE_KM,
-        )
-
-                # Monetary values are rounded before the next calculation so the
+        # Monetary values are rounded before the next calculation so the
         # displayed breakdown always equals the final quoted price.
         money = Decimal("0.01")
 
@@ -394,15 +389,23 @@ class InstantBookingQuoteService:
             rounding=ROUND_HALF_UP,
         )
 
-        travel_charge = (
-            chargeable_distance
-            * pricing_rule.travel_fee_per_km
+        # Travel is charged using the single global admin-configured
+        # TravelFeeRule (free distance + rate per km), shared with
+        # scheduled booking billing.
+        travel_charge = TravelFeeCalculator.calculate_fee(
+            average_distance
         ).quantize(
             money,
             rounding=ROUND_HALF_UP,
         )
-
-        platform_fee = pricing_rule.platform_fee.quantize(
+        # Platform fee is now calculated from the admin-configured
+        # PlatformFeeRule slabs (filtered to INSTANT/BOTH rules), the
+        # same calculator scheduled-booking billing uses — instead of
+        # the old fixed pricing_rule.platform_fee value.
+        platform_fee = PlatformFeeCalculator.calculate_fee(
+            average_service_price,
+            booking_type=BookingType.INSTANT,
+        ).quantize(
             money,
             rounding=ROUND_HALF_UP,
         )
@@ -636,6 +639,48 @@ class InstantBookingQuoteService:
         return available_employees
 
     @staticmethod
+    def _get_todays_active_bookings(business, employee, owner):
+        """
+        Fetches this provider's today's scheduled bookings that are
+        still active (PENDING/CONFIRMED/IN_PROGRESS). Shared by the
+        working-hours slot-merging check and the scheduled-conflict
+        check so both look at the same set of bookings.
+        """
+        today = timezone.localdate()
+
+        active_statuses = [
+            BookingStatus.PENDING,
+            BookingStatus.CONFIRMED,
+            BookingStatus.IN_PROGRESS,
+        ]
+
+        booking_filter = {
+            "business": business,
+            "scheduled_date": today,
+            "status__in": active_statuses,
+        }
+
+        if employee is not None:
+            booking_filter["employee"] = employee
+            employee_bookings = Booking.objects.filter(**booking_filter)
+
+            assigned_bookings = Booking.objects.filter(
+                business=business,
+                scheduled_date=today,
+                status__in=active_statuses,
+                booking_employees__employee=employee,
+            )
+
+            return (employee_bookings | assigned_bookings).distinct()
+
+        return Booking.objects.filter(
+            business=business,
+            scheduled_date=today,
+            status__in=active_statuses,
+            employee__isnull=True,
+        )
+
+    @staticmethod
     def _is_inside_working_hours(
         business,
         owner,
@@ -647,16 +692,17 @@ class InstantBookingQuoteService:
         working time remaining for travel plus service duration.
 
         A provider's day can be split across several slots
-        (MORNING, AFTERNOON, EVENING). If the slot containing
-        "now" doesn't have enough time left on its own, but the
-        next slot starts exactly where it ends (no gap), that
-        slot is treated as a continuation of the same working
-        window - e.g. MORNING 8-12 followed immediately by
-        AFTERNOON 12-16 lets an instant booking that needs until
-        1pm through, instead of being rejected just because it
-        crosses the MORNING/AFTERNOON boundary.
+        (MORNING, AFTERNOON, EVENING), possibly with a gap between
+        them (e.g. MORNING 8-12, AFTERNOON 13-16). If the slot
+        containing "now" doesn't have enough time left on its own,
+        a later slot today is folded into the window PROVIDED the
+        provider has no other scheduled booking during that slot -
+        i.e. they're genuinely free for it, gap or not. The moment a
+        later slot is blocked by an existing scheduled booking,
+        merging stops there and only the time up to that point counts.
         """
         now = timezone.localtime()
+        today = timezone.localdate()
         current_day = now.strftime("%A").upper()
         current_time = now.time()
 
@@ -689,13 +735,41 @@ class InstantBookingQuoteService:
         if current_index is None:
             return False
 
-        # Extend the window through any immediately-following
-        # slots (no gap between them).
+        bookings = list(
+            InstantBookingQuoteService._get_todays_active_bookings(
+                business, employee, owner
+            ).select_related("service")
+        )
+
+        # Extend the window through any later slot today the
+        # provider is actually free for (no scheduled booking
+        # overlapping that slot), gap or no gap. Stop at the first
+        # slot they're already booked for.
         window_end = schedules[current_index].end_time
 
         for schedule in schedules[current_index + 1:]:
-            if schedule.start_time != window_end:
+            slot_start = timezone.make_aware(
+                datetime.combine(today, schedule.start_time)
+            )
+            slot_end = timezone.make_aware(
+                datetime.combine(today, schedule.end_time)
+            )
+
+            slot_is_free = True
+            for booking in bookings:
+                booking_start = timezone.make_aware(
+                    datetime.combine(today, booking.scheduled_time)
+                )
+                booking_end = booking_start + timedelta(
+                    minutes=booking.service.duration
+                )
+                if booking_start < slot_end and booking_end > slot_start:
+                    slot_is_free = False
+                    break
+
+            if not slot_is_free:
                 break
+
             window_end = schedule.end_time
 
         required_end = (
@@ -727,43 +801,9 @@ class InstantBookingQuoteService:
         now = timezone.localtime()
         today = timezone.localdate()
 
-        active_statuses = [
-            BookingStatus.PENDING,
-            BookingStatus.CONFIRMED,
-            BookingStatus.IN_PROGRESS,
-        ]
-
-        booking_filter = {
-            "business": business,
-            "scheduled_date": today,
-            "status__in": active_statuses,
-        }
-
-        if employee is not None:
-            booking_filter["employee"] = employee
-            employee_bookings = Booking.objects.filter(
-                **booking_filter
-            )
-
-            assigned_bookings = Booking.objects.filter(
-                business=business,
-                scheduled_date=today,
-                status__in=active_statuses,
-                booking_employees__employee=employee,
-            )
-
-            bookings = (
-                employee_bookings
-                | assigned_bookings
-            ).distinct()
-
-        else:
-            bookings = Booking.objects.filter(
-                business=business,
-                scheduled_date=today,
-                status__in=active_statuses,
-                employee__isnull=True,
-            )
+        bookings = InstantBookingQuoteService._get_todays_active_bookings(
+            business, employee, owner
+        )
 
         instant_start = now
         instant_end = (
@@ -772,9 +812,11 @@ class InstantBookingQuoteService:
         )
 
         for booking in bookings.select_related("service"):
-            scheduled_start = datetime.combine(
-                today,
-                booking.scheduled_time,
+            scheduled_start = timezone.make_aware(
+                datetime.combine(
+                    today,
+                    booking.scheduled_time,
+                )
             )
 
             scheduled_end = (

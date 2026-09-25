@@ -1,7 +1,7 @@
 from decimal import Decimal
 from django.utils import timezone
 from common.utils.money import quantize_money, calculate_percentage, add_money
-from .models import PlatformFeeRule, BookingFeeRule
+from .models import PlatformFeeRule, BookingFeeRule, TravelFeeRule
 from .choices import FeeType
 
 class PlatformFeeCalculator:
@@ -9,7 +9,7 @@ class PlatformFeeCalculator:
     Calculates the platform fee based on configured slabs.
     """
     @staticmethod
-    def calculate_fee(base_amount: Decimal) -> Decimal:
+    def calculate_fee(base_amount: Decimal, booking_type: str = "BOTH") -> Decimal:
         base_amount = quantize_money(base_amount)
         if base_amount <= 0:
             return Decimal("0.00")
@@ -18,6 +18,9 @@ class PlatformFeeCalculator:
         # Find applicable rule
         # minimum_amount <= base_amount < maximum_amount (or maximum_amount is null)
         rules = PlatformFeeRule.objects.filter(is_active=True, effective_from__lte=now).exclude(effective_to__lt=now)
+
+        # Filter by booking type, same convention as BookingFeeCalculator
+        rules = rules.filter(booking_type__in=[booking_type, "BOTH"])
         
         applicable_rule = None
         for rule in rules.order_by("-minimum_amount"):
@@ -63,6 +66,32 @@ class BookingFeeCalculator:
         else:
             return quantize_money(applicable_rule.fee_value)
 
+class TravelFeeCalculator:
+    """
+    Calculates the travel charge from a distance using the single
+    active global TravelFeeRule.
+    """
+    @staticmethod
+    def calculate_fee(distance_km: Decimal) -> Decimal:
+        from .models import TravelFeeRule
+
+        distance_km = Decimal(str(distance_km))
+        if distance_km <= 0:
+            return Decimal("0.00")
+
+        now = timezone.now()
+        rule = (
+            TravelFeeRule.objects.filter(is_active=True, effective_from__lte=now)
+            .exclude(effective_to__lt=now)
+            .order_by("-effective_from")
+            .first()
+        )
+
+        if not rule:
+            raise ValueError("No applicable travel fee rule configured.")
+
+        chargeable_distance = max(Decimal("0.00"), distance_km - rule.free_distance_km)
+        return quantize_money(chargeable_distance * rule.rate_per_km)
 
 class BillingCalculator:
     """
@@ -100,7 +129,7 @@ class BillingCalculator:
         )
         
         # 1. Platform Fee
-        platform_fee = PlatformFeeCalculator.calculate_fee(platform_fee_base)
+        platform_fee = PlatformFeeCalculator.calculate_fee(platform_fee_base, self.booking_type)
         
         # 2. Booking Fee
         booking_fee = BookingFeeCalculator.calculate_fee(platform_fee_base, self.booking_type)

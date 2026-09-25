@@ -1,9 +1,15 @@
 from django.contrib import admin
-from .models import BillingRecord, BillingItem, PlatformFeeRule, BookingFeeRule
+from .models import BillingRecord, BillingItem, PlatformFeeRule, BookingFeeRule, TravelFeeRule
 
 @admin.register(PlatformFeeRule)
 class PlatformFeeRuleAdmin(admin.ModelAdmin):
-    list_display = ("rule_uuid", "percentage", "minimum_amount", "maximum_amount", "is_active", "effective_from", "effective_to")
+    list_display = ("rule_uuid", "percentage", "minimum_amount", "maximum_amount", "booking_type", "is_active", "effective_from", "effective_to")
+    list_filter = ("is_active", "booking_type")
+    search_fields = ("rule_uuid",)
+
+@admin.register(TravelFeeRule)
+class TravelFeeRuleAdmin(admin.ModelAdmin):
+    list_display = ("rule_uuid", "free_distance_km", "rate_per_km", "is_active", "effective_from", "effective_to")
     list_filter = ("is_active",)
     search_fields = ("rule_uuid",)
 
