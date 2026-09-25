@@ -15,6 +15,7 @@ class PlatformFeeRule(TimeStampedModel):
     minimum_amount = models.DecimalField(max_digits=10, decimal_places=2)
     maximum_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     percentage = models.DecimalField(max_digits=5, decimal_places=2)
+    booking_type = models.CharField(max_length=20, choices=BookingType.choices, default=BookingType.BOTH)
     effective_from = models.DateTimeField(default=timezone.now)
     effective_to = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True, db_index=True)
@@ -23,7 +24,7 @@ class PlatformFeeRule(TimeStampedModel):
         ordering = ["minimum_amount"]
 
     def __str__(self):
-        return f"Platform Fee Rule ({self.percentage}%) for {self.minimum_amount} - {self.maximum_amount or 'MAX'}"
+        return f"Platform Fee Rule ({self.percentage}%) for {self.minimum_amount} - {self.maximum_amount or 'MAX'} [{self.booking_type}]"
 
 class BookingFeeRule(TimeStampedModel):
     """
@@ -44,6 +45,25 @@ class BookingFeeRule(TimeStampedModel):
 
     def __str__(self):
         return f"Booking Fee Rule ({self.fee_type}: {self.fee_value})"
+
+class TravelFeeRule(TimeStampedModel):
+    """
+    Single global admin-configured rule for calculating travel charges
+    from distance. The first `free_distance_km` of a trip is free;
+    everything beyond that is charged at `rate_per_km`.
+    """
+    rule_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    free_distance_km = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    rate_per_km = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    effective_from = models.DateTimeField(default=timezone.now)
+    effective_to = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ["-effective_from"]
+
+    def __str__(self):
+        return f"Travel Fee Rule (free {self.free_distance_km} km, ₹{self.rate_per_km}/km)"
 
 class BillingRecord(TimeStampedModel):
     """
