@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.utils import timezone
 
 from accounts.models import Address
 from business.models import EmployeeWorkingSchedule
@@ -777,14 +778,21 @@ class BookingService:
         from_statuses,
         to_status,
         error_msg,
+        extra_fields=None,
     ):
         if booking.status not in from_statuses:
             raise ValueError(error_msg)
 
         booking.status = to_status
 
+        update_fields = ["status"]
+        if extra_fields:
+            for field_name, value in extra_fields.items():
+                setattr(booking, field_name, value)
+            update_fields.extend(extra_fields.keys())
+
         booking.save(
-            update_fields=["status"]
+            update_fields=update_fields
         )
 
         return booking
@@ -970,6 +978,7 @@ class BookingService:
             ],
             BookingStatus.COMPLETED,
             "Only in-progress bookings can be completed.",
+            extra_fields={"completed_at": timezone.now()},
         )
 
         from notifications.services import NotificationService

@@ -343,6 +343,19 @@ class InstantBookingCreateAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except ValueError as exc:
+            if str(exc) == "No applicable travel fee rule configured.":
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Travel fee configuration is not available. "
+                            "Please try again later."
+                        ),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            raise
 
         # Service exists, but there is currently no eligible provider within 15 km.
         if not quote or not quote.get("candidates"):
@@ -1332,7 +1345,8 @@ class BusinessInstantBookingCompleteVerifyAPIView(APIView):
             )
 
         booking.status = InstantBookingStatus.COMPLETED
-        booking.save(update_fields=["status", "updated_at"])
+        booking.completed_at = timezone.now()
+        booking.save(update_fields=["status", "updated_at", "completed_at"])
 
         from notifications.services import NotificationService
         from notifications.choices import NotificationType

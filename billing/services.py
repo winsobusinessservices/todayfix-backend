@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
@@ -27,14 +28,42 @@ class BillingService:
         from instant_bookings.models import InstantBookingStatus
         
         if booking:
-            # Billing may only be previewed/created once the job is
-            # actually completed, not while it's still pending,
-            # confirmed, in progress, cancelled, or rejected.
-            if booking.status != BookingStatus.COMPLETED:
+            # Billing may be previewed/created once the job has started
+            # (IN_PROGRESS) or is fully completed, not while it's still
+            # pending, confirmed, cancelled, or rejected.
+            if booking.status not in (BookingStatus.IN_PROGRESS, BookingStatus.COMPLETED):
                 raise ValueError(f"Billing cannot be created for a booking with status {booking.status}.")
         elif instant_booking:
             if instant_booking.status in [InstantBookingStatus.CANCELLED, InstantBookingStatus.EXPIRED, InstantBookingStatus.NO_PROVIDER]:
                 raise ValueError("Billing cannot be created for a cancelled booking.")
+
+    BILLING_CONFIRMATION_WINDOW_DAYS = 7
+
+    @staticmethod
+    def check_confirmation_window(booking=None, instant_booking=None):
+        """
+        Once a booking/instant_booking reaches COMPLETED, the business
+        owner has BILLING_CONFIRMATION_WINDOW_DAYS days to draft and
+        confirm its billing record. Raises ValueError if that window
+        has already elapsed. No-op while still IN_PROGRESS (no
+        completed_at yet), since the window hasn't started.
+        """
+        from bookings.choices import BookingStatus
+        from instant_bookings.models import InstantBookingStatus
+
+        target = booking or instant_booking
+        if target is None or target.status not in (BookingStatus.COMPLETED, InstantBookingStatus.COMPLETED):
+            return
+        if not target.completed_at:
+            return
+
+        deadline = target.completed_at + timedelta(days=BillingService.BILLING_CONFIRMATION_WINDOW_DAYS)
+        if timezone.now() > deadline:
+            raise ValueError(
+                f"Billing must be drafted and confirmed within "
+                f"{BillingService.BILLING_CONFIRMATION_WINDOW_DAYS} days of job completion. "
+                f"This booking's window expired on {deadline.strftime('%d %b %Y, %H:%M')}."
+            )
 
     @staticmethod
     def _create_billing_items(record: BillingRecord):
@@ -206,6 +235,7 @@ class BillingService:
             raise ValueError("Provide exactly one of booking or instant_booking.")
             
         BillingService.validate_billable_booking(booking, instant_booking)
+        BillingService.check_confirmation_window(booking, instant_booking)
         explicit_fields = explicit_fields or set()
 
         if booking:
@@ -263,10 +293,15 @@ class BillingService:
 
     @staticmethod
     @transaction.atomic
-    def finalize_billing(billing_record: BillingRecord) -> BillingRecord:
+    def finalize_billing(billing_record: BillingRecord, confirmed_by=None) -> BillingRecord:
         """
         Locks the billing record snapshot.
         Once finalized, the core amounts should not change. Any further additions need an adjustment version.
+
+        confirmed_by: the user who triggered this finalization (business
+        owner/admin via the confirm action). Left as None when this is
+        reached indirectly (e.g. adjust's auto-finalize), so confirmed_by
+        stays accurate to who actually confirmed a draft.
         """
         if billing_record.status == BillingStatus.FINALIZED:
             return billing_record # Idempotent
@@ -276,7 +311,11 @@ class BillingService:
             
         billing_record.status = BillingStatus.FINALIZED
         billing_record.finalized_at = timezone.now()
-        billing_record.save(update_fields=["status", "finalized_at", "updated_at"])
+        update_fields = ["status", "finalized_at", "updated_at"]
+        if confirmed_by is not None:
+            billing_record.confirmed_by = confirmed_by
+            update_fields.append("confirmed_by")
+        billing_record.save(update_fields=update_fields)
         
         return billing_record
 

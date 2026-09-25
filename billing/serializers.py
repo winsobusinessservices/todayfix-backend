@@ -32,6 +32,7 @@ class BillingRecordSerializer(serializers.ModelSerializer):
     items = BillingItemSerializer(many=True, read_only=True)
     booking_uuid = serializers.UUIDField(source="booking.uuid", read_only=True, allow_null=True)
     instant_booking_uuid = serializers.UUIDField(source="instant_booking.instant_booking_uuid", read_only=True, allow_null=True)
+    confirmed_by_uuid = serializers.UUIDField(source="confirmed_by.user_uuid", read_only=True, allow_null=True)
 
     class Meta:
         model = BillingRecord
@@ -57,6 +58,7 @@ class BillingRecordSerializer(serializers.ModelSerializer):
             "status",
             "version",
             "items",
+            "confirmed_by_uuid",
             "created_at",
             "updated_at",
         ]
