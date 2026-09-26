@@ -240,7 +240,8 @@ class BillingViewSet(viewsets.ReadOnlyModelViewSet):
                 return Response({"detail": "Only the business owner can confirm billing."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            record = BillingService.finalize_billing(record)
+            BillingService.check_confirmation_window(booking=record.booking, instant_booking=record.instant_booking)
+            record = BillingService.finalize_billing(record, confirmed_by=user)
             return Response(BillingRecordSerializer(record).data)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

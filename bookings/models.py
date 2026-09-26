@@ -75,6 +75,12 @@ class Booking(TimeStampedModel):
         db_index=True,
     )
 
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when the booking transitioned to COMPLETED.",
+    )
+
     notes = models.TextField(
         blank=True,
         default="",
